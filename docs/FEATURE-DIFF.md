@@ -12,13 +12,13 @@
 | 同话题排队与请求者绑定 | 旧 `thread_router.py`、`thread_state.py`、`governance.py`；相关团队测试 | 官方有通用会话排队，但缺少按话题/请求者隔离、审批/停止/澄清绑定 | `extensions/`；若无法接入生命周期再评估 Core 补丁 | 排队、停止、审批、澄清只允许当前请求者 |
 | 进度与最终回复 | 旧 `reply_state.py`；提交 `93420a244`；`test_lark_reply_replacement.py` | 官方有 `send`/`edit_message`，但缺少旧 ReplyState 的进度锁定、审批等待和取消/失败收尾语义 | `extensions/`；先核对处理生命周期钩子 | 进度、最终、失败、取消、长答案均回读 |
 | 机器人身份与权限边界 | `governance.py`；提交 `1eb158ffb2`；`test_lark_identity.py`、`test_team_governance.py` | 公共团队治理 | `extensions/lark-access/` + 受保护配置 | 已实现。测试群验证了自动记下、管理员改人设、非管理员拒绝和过期文件清理。见 #15 |
-| 词典与共享资产治理 | `lingo.py`；提交 `9e1c8d3a2a`、`d3b3959a3e`；`test_team_lingo.py` | 公共能力，不能进入任务包 | `extensions/` | 固定机器人身份只读；覆盖群聊、私聊、ACP、其他工具入口及无会话查询 |
+| 词典与共享资产治理 | `lingo.py`；提交 `9e1c8d3a2a`、`d3b3959a3e`；`test_team_lingo.py` | 公共能力，不能进入任务包 | `extensions/`，以后做，见 #21 | 固定机器人身份只读；覆盖群聊、私聊、ACP、其他工具入口及无会话查询 |
 | 沙箱与产物路径 | `sandbox.py`、`seccomp-*.json`；`test_team_sandbox.py` | Linux 容器能力，macOS 现状不等价 | `deploy/` + `extensions/` | Linux 非 root、可读写边界、失败不泄露凭据 |
-| 原图与任务附件 | `team/tests/test_team_runtime.py:114`（字节一致性）、`:139-149`（路径/清理）；Helius 测试只覆盖收费生图 | 原图上传与 Helius 生图是两项不同能力 | `extensions/`；业务规则归任务 | 上传、回读、不可读时明确反馈；生图另行评估 |
+| 原图与任务附件 | `team/tests/test_team_runtime.py:114`（字节一致性）、`:139-149`（路径/清理）；Helius 测试只覆盖收费生图 | 原图上传与 Helius 生图是两项不同能力 | `extensions/`，以后做，见 #22 | 上传、回读、不可读时明确反馈；生图另行评估 |
 | 文档评论/引用回复 | 官方 Core 已有 `plugins/platforms/feishu/feishu_comment.py`、`feishu_comment_rules.py` 及对应 `core/tests/gateway/test_feishu_comment*.py`；旧 CN 基线到旧 HEAD 无团队新增差异 | 官方已具备，当前不迁移旧实现 | 官方 Core | 用官方测试验收评论线程、权限和回复回读 |
 | Lark Tasks / ACP | `team/task-bridge/`、`team/acp/`；`test_job_deployment.py` | 当前后台已暂停，尚未迁移 | `extensions/` + `deploy/` | Linux 容器服务、专用身份、真实请求回读 |
-| Meegle 分诊与负责人判断 | `team/jobs/meegle-triage/`；其单元测试 | 业务任务 | `jobs/meegle-triage/` | 独立依赖、状态、测试和发布 |
-| 每日摘要 | `team/jobs/daily-summary/`；`test_cron_daily_summary.py` | 业务任务 | `jobs/daily-summary/` | 独立 Cron 和状态，不进入公共镜像 |
+| Meegle 分诊与负责人判断 | `team/jobs/meegle-triage/`；其单元测试 | 不另建任务包。操作用官方 Meegle 技能 | 官方技能见 #9 | 需要日程时用 Hermes 定时任务挂上该技能 |
+| 每日摘要 | `team/jobs/daily-summary/`；`test_cron_daily_summary.py` | 不另建任务包 | Hermes 定时任务 | 需要时用定时任务挂上已安装技能，不进入公共镜像 |
 | 会议、审批、联系人等 Lark 技能 | `team/skills/lark-*` | 按真实需求逐项启用，不整体复制 | 独立扩展或任务 | 每项先明确使用场景、权限和验收 |
 | 旧聊天历史、旧插件、旧个人授权 | 旧运行目录和 `team/.local/` | 本阶段不迁移 | 保留旧状态 | 不读入新镜像、不提交 Git |
 

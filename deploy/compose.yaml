@@ -18,6 +18,7 @@ services:
       HERMES_GID: ${HERMES_GID:?Set HERMES_GID}
       HERMES_GATEWAY_BOOTSTRAP_STATE: running
       HERMES_WRITE_SAFE_ROOT: /opt/data:/workspace
+      MEEGLE_NO_UPDATE_CHECK: "1"
     volumes:
       - ${HERMES_TEAM_STATE_DIR}/data:/opt/data
       - ${HERMES_TEAM_STATE_DIR}/workspace:/workspace

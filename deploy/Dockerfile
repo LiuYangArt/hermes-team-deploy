@@ -10,3 +10,6 @@ RUN rm -rf /opt/hermes/.venv && \
     /opt/hermes/.venv/bin/python -m docker.build_agent && \
     /opt/hermes/.venv/bin/python -c 'import lark_oapi; from pm.extras import available; assert available("feishu")' && \
     chmod -R a+rX,go-w /opt/hermes/.venv && rm -f /opt/hermes/.venv/.lock
+COPY official-tools.json install_official_tools.sh /opt/hermes/
+RUN sh /opt/hermes/install_official_tools.sh --image && \
+    chmod -R a+rX /opt/hermes/official-skills /usr/local/lib /usr/local/bin

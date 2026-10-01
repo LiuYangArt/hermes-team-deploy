@@ -282,7 +282,23 @@ def _terminal_locked(command: str) -> bool:
     )
     if any(marker in command for marker in markers):
         return True
-    return ".env" in command and any(verb in command for verb in (">", "tee ", "rm ", "mv ", "cp "))
+    if ".env" in command and any(verb in command for verb in (">", "tee ", "rm ", "mv ", "cp ")):
+        return True
+    # One shared personal login would let every colleague act as whoever scanned.
+    if "lark-cli" in command and any(marker in command for marker in (
+        "auth login",
+        "auth logout",
+        "config bind",
+        "config init",
+        "config remove",
+        "strict-mode",
+        "default-as",
+        "keychain-downgrade",
+    )):
+        return True
+    return ".lark-cli" in command and any(
+        verb in command for verb in (">", "tee ", "rm ", "mv ", "cp ", "mkdir ")
+    )
 
 
 def _terminal_shared(command: str) -> bool:

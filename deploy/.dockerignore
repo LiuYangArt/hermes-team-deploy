@@ -1,2 +1,4 @@
 *
 !Dockerfile
+!official-tools.json
+!install_official_tools.sh

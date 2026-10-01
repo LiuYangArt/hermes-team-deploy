@@ -90,12 +90,16 @@ class PermissionTest(unittest.TestCase):
             ("write_file", {"path": "/opt/data/config.yaml"}),
             ("terminal", {"command": "hermes plugins install demo"}),
             ("write_file", {"path": "/opt/data/plugins/demo/plugin.yaml"}),
+            ("terminal", {"command": "lark-cli config bind --identity user-default"}),
+            ("terminal", {"command": "lark-cli auth login --domain task --no-wait"}),
+            ("terminal", {"command": "rm -rf /opt/data/home/.lark-cli"}),
         )
         for user in ("ou_other", "ou_admin"):
             for tool, args in locked:
                 decision = self._tool(tool, args, user=user)
                 self.assertEqual(decision["action"], "block", (user, tool, args))
                 self.assertIn("不能在对话里改", decision["message"])
+        self.assertIsNone(self._tool("terminal", {"command": "lark-cli im +messages-send --as bot"}))
 
     def test_ordinary_files_move_into_independent_storage(self):
         decision = self._tool("write_file", {"path": "/workspace/草稿/清单.md", "content": "1"})

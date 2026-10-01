@@ -1,6 +1,6 @@
 # Docker 部署
 
-`scripts/build.sh` 从相邻 `hermes-team` 构建官方基础镜像，再通过本目录 Dockerfile 使用官方依赖锁加入 Feishu extra；构建范围不含部署仓库的 jobs/、运行状态或凭据。当前实现是官方最小机器人，新团队扩展与独立任务尚未迁移。
+`scripts/build.sh` 从相邻 `hermes-team` 构建官方基础镜像，再通过本目录 Dockerfile 使用官方依赖锁加入 Feishu extra；构建范围不含部署仓库的 jobs/、运行状态或凭据。当前实现在官方机器人上加入飞书依赖，并装上固定版本的官方 Lark 命令行和 Meegle 命令行。技能只启用消息、文档、任务和 Meegle，不改 Hermes 本体。词典（#21）和原图附件（#22）以后再做。
 
 1. 将 `deploy/.env.example` 复制为 `deploy/.env`，设置独立状态目录、宿主用户 UID/GID 及实际 Core 提交。
 2. 在受保护状态目录创建 `bot.env`（Lark 应用凭据），`data/config.yaml`（模型与平台配置）和 `workspace/`。不要挂载旧 CN 的整个状态目录，否则会加载旧插件与任务。

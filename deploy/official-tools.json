@@ -1,0 +1,6 @@
+{
+  "lark_cli": "1.0.97",
+  "meegle_cli": "1.0.23",
+  "lark_skills": ["lark-shared", "lark-im", "lark-doc", "lark-task"],
+  "meegle_skills": ["meegle"]
+}
