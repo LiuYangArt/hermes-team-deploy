@@ -70,13 +70,13 @@
 - [x] 新建独立 GitHub 仓库和 CodeProjects 目录。
 - [x] Core 直接取自官方，配置 origin/upstream，不导入 CN 历史。
 - [x] 落盘计划、目录和工程约束。
-- [ ] 清点旧功能，逐项判定官方已具备 / 插件 / 必要补丁 / 不迁移；已登记旧 CN 源码入口，尚未完成逐项差异表。
+- [x] 清点旧功能，逐项判定官方已具备 / 插件 / 必要补丁 / 不迁移；差异表见 `docs/FEATURE-DIFF.md`，对应 GitHub Issue #4。
 
 ### 1. 最小官方端到端
 
 - [x] 固定官方 Core 提交 `3057b821787cae30a423525790c87e634b1c546e`，检查官方 Docker、插件及 Feishu 接口。
 - [x] 在独立运行目录复用现有机器人身份，跑通官方 Hermes → Lark 收到请求 → 回答；回读消息 ID 为 `om_x100b64e851773ca0ff4f0c487d3c7f5`。
-- [ ] 确认群/话题标识和消息归属；已验证测试对话中的回复对应原始请求，原生话题、引用消息及跨话题隔离仍待验证。
+- [ ] 确认群/话题标识和消息归属；已确认授权群 `my bots` （真实群 ID 仅保存在本地证据；`chat_mode=group`、`group_message_type=chat`），首次 @ 的真实回读显示机器人回复带 `root_id/parent_id` 但无 `thread_id`，因此不能视为自动开启原生话题；原生话题连续性、引用和跨话题隔离仍待在准确机器人身份下补验。脱敏证据见 `artifacts/issue-5/evaluation.json`。
 - [x] 记录基线测试、日志及已知限制；已停止旧后台并接管现有机器人。证据见 `docs/DEPLOYMENT.md` 和本地 `artifacts/lark-e2e-receive-2.json`。
 
 ### 2. Linux Docker 最小交付
@@ -124,15 +124,42 @@
 
 ## 下一步顺序
 
-1. 从上文旧 CN 路径读取源码与测试，形成逐项功能差异表，核对官方已有实现；入口索引不等于已完成清点。
-2. 用新后台补验群聊原生话题、引用和跨话题隔离，再按差异表逐项恢复团队能力。
+- 测试授权：用户已指定 Lark 测试群 **mybots**（界面名称 “my bots”）；群聊话题、引用和跨话题隔离验收可在该群执行，范围规则见 `AGENTS.md`。
+- Session 归属：后续任务必须在 Codex 的 `hermes-team` 项目和统一工作区创建；公共区域/Projectless Session 不作为正式入口。
+
+
+1. Issue #5 已确认首次 @ 的回复不是原生话题；补验已有原生话题连续性、引用及双话题隔离，随后评估自动开话题的最小扩展方案。验收未齐，保持 Open / In Progress。
+2. 按差异表和 Project 中 Issue #5-#19 的归属逐项恢复团队能力；先做公共扩展，再处理 Tasks/ACP 和独立任务。
 3. 补齐配置模板、健康检查和 Linux 云服务器交付；Tasks/ACP 与定时任务按独立阶段迁移。
+
+## GitHub Issue 与 Project 工作流
+
+- [x] 建立私有跨仓库 Project：[Hermes Team](https://github.com/users/LiuYangArt/projects/3)，关联 `hermes-team` 与 `hermes-team-deploy`。
+- [x] 首批任务已登记；差异清点 `LiuYangArt/hermes-team-deploy#4` 已关闭。实际待办与状态从 Project/Issue 回读，不在规则中固定任务总数。
+- [x] 完整任务生命周期写入 `AGENTS.md` 的“GitHub Issue / Project 工作流”：查重建单 → 归属及父子关系 → 开工 → 验收证据 → 关闭并同步 Project → 回读；另含阻塞、取消、重复和重开规则。
+- [x] 统一工作区与 Core 的 AGENTS.md 指向同一规范，避免三份流程各自变化；本次规则任务：[Deploy #20](https://github.com/LiuYangArt/hermes-team-deploy/issues/20)。
+- [x] 文档检查通过：两个仓库 `git diff --check`、`python3 scripts/check_scaffold.py`；规则交付与后续本地提交分开记录；未推送或变更运行服务。检查与远端任务回读证据放 `artifacts/issue-workflow/`。
+
+后续以 Issue 记录任务与验收事实，本计划保留阶段顺序、架构和摘要。只确认通用接口缺口后才建 Core 实现 Issue。Project 状态由 agent 显式同步；本地 Stop hook 不验证 GitHub 状态，也未因此新增自动化。
 
 ## 旧功能评估注意
 
 上游开放 PR 不等于主线已有功能。话题/引用/进度与 #94141、#98376、#60719、#81226、#115172 有重叠，实施时重新核对状态及实际代码。
 之前报告曾将 Git 左右提交数量反读，不能据此估计工作量；以官方快照、接口变化和行为测试判断。
 
+## Codex 交付记录
+
+- [x] 增加工作区级 Stop hook：有 Core/Deploy 改动时，在任务结束前检查对应计划、说明文档或任务清单是否同步。
+- [x] 按会话保存开始快照，避免把回合开始前已有的脏改动误算为本回合完成；任务目录之间的文档不互相抵销。
+- [x] 15 项临时双仓库测试通过，覆盖只读回合、公共改动、单任务隔离、提交后改动、删除文档、中断续跑、空白/旧清单误放行和重复安装；详见 docs/CODEX_HOOKS.md。
+- [ ] 首次在 Codex 中运行 `/hooks`，审查并信任 `.codex/hooks.json`；这是本机配置生效所需的一次性操作。
+
 ## 本阶段不做
 
 不合并旧 CN 分支、不迁移聊天历史或旧插件、不自动创建 PR。当前授权覆盖停止旧后台、复用现有 Lark 应用与模型配置到独立运行目录并启动新后台。旧任务与 Tasks/ACP 暂不迁移，其状态保留；停止旧后台期间不会运行旧定时任务。
+
+## 2026-10-01 本地提交与验收复核
+
+- [x] 审查现有规则、差异表及 Codex hook 源码和测试；运行 15 项 hook 测试、脚手架和两仓库差异检查。
+- [x] 用户授权分别提交 Core 规则与 Deploy 文档/hooks；不推送，不创建分支，不将 artifacts 或真实群 ID 纳入提交。
+- [ ] Issue #5 仍缺原生话题连续性、引用内容和双话题隔离实测；下一 session 继续该 Issue，不将首轮评估冒充完整验收。
