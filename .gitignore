@@ -1,0 +1,10 @@
+artifacts/
+.env
+.env.*
+!.env.example
+runtime/
+secrets/
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
