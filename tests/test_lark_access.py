@@ -135,6 +135,33 @@ class PermissionTest(unittest.TestCase):
         refused = policy.inbound_text("/plugins install demo", is_admin_sender=True)
         self.assertIn("不能在对话里改", refused)
 
+    def test_admin_can_manage_scheduled_tasks_and_others_can_only_look(self):
+        self.assertIsNone(self._tool("cronjob_manage", {"action": "list"}))
+        self.assertIsNone(self._tool("cronjob_manage", {"action": "create", "schedule": "0 9 * * *"}, user="ou_admin"))
+        self.assertIsNone(self._tool("terminal", {"command": "hermes cron list"}))
+        self.assertIsNone(self._tool("terminal", {"command": "hermes cron pause daily"}, user="ou_admin"))
+        for action in ("create", "update", "pause", "resume", "remove", "run"):
+            decision = self._tool("cronjob_manage", {"action": action})
+            self.assertEqual(decision["action"], "block", action)
+            self.assertIn("管理员", decision["message"])
+        refused = self._tool("terminal", {"command": "hermes cron create 'every day' 'digest'"})
+        self.assertEqual(refused["action"], "block")
+        self.assertIn("管理员", refused["message"])
+
+    def test_nobody_can_open_unattended_command_approval(self):
+        command = "hermes config set approvals.cron_mode approve"
+        for user in ("ou_other", "ou_admin"):
+            decision = self._tool("terminal", {"command": command}, user=user)
+            self.assertEqual(decision["action"], "block", user)
+            self.assertIn("不能在对话里改", decision["message"])
+
+    def test_admin_turn_mentions_scheduled_tasks_without_opening_the_approval_switch(self):
+        note = policy.turn_note(is_admin_sender=True, store=self.store)
+        self.assertIn("定时任务", note)
+        self.assertIn("批准开关", note)
+        other = policy.turn_note(is_admin_sender=False, store=self.store)
+        self.assertIn("查看已有定时任务可以", other)
+
 
 class CleanupTest(unittest.TestCase):
     def test_only_files_older_than_seven_days_are_removed(self):

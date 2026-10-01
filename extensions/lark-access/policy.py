@@ -17,7 +17,7 @@ CLEANUP_HOUR = 4
 CLEANUP_MINUTE = 22
 MAX_AGE = timedelta(days=7)
 
-REFUSAL_ADMIN = "只有管理员可以改技能、人设、长期记忆或模型。这件事已经拒绝。"
+REFUSAL_ADMIN = "只有管理员可以改技能、人设、长期记忆、模型或定时任务。这件事已经拒绝。"
 REFUSAL_LOCKED = "程序、管理员名单、进门开关、凭据和插件安装不能在对话里改。"
 REFUSAL_AUTOMATIC = "普通对话不会自动记成技能或长期记忆。"
 
@@ -130,6 +130,8 @@ def tool_decision(
         if background_review:
             return _block(REFUSAL_AUTOMATIC)
         return None if admin else _block(REFUSAL_ADMIN)
+    if tool_name == "cronjob_manage":
+        return _cron_decision(str(args.get("action") or ""), admin)
     if tool_name == "terminal":
         return _terminal_decision(str(args.get("command") or ""), admin)
     if tool_name in {"write_file", "patch"}:
@@ -140,8 +142,12 @@ def tool_decision(
 def turn_note(*, is_admin_sender: bool, store: Path) -> str:
     shared = f"对方要的文档、任务清单、图片和草稿只写到 {store}。"
     if is_admin_sender:
-        return shared + "当前发送者是管理员，明确要求时可以记技能、改人设、改长期记忆、切换模型。不能改程序、名单、进门开关、凭据或安装插件。"
-    return shared + "当前发送者不是管理员。要求改技能、人设、长期记忆、模型或插件时直接拒绝，不要去改。"
+        return shared + (
+            "当前发送者是管理员，明确要求时可以记技能、改人设、改长期记忆、切换模型，"
+            "也可以用定时任务工具查看、新建、修改、暂停、恢复和删除定时任务。"
+            "不能改程序、名单、进门开关、凭据或安装插件，也不能改无人值守时危险命令的批准开关。"
+        )
+    return shared + "当前发送者不是管理员。要求改技能、人设、长期记忆、模型、插件或定时任务时直接拒绝，不要去改。查看已有定时任务可以。"
 
 
 def cleanup_expired(root: Path, now: datetime, *, max_age: timedelta = MAX_AGE) -> dict[str, list[str]]:
@@ -260,10 +266,33 @@ def _memory_write(args: dict) -> bool:
     return action in _MEMORY_WRITES or not action
 
 
+_CRON_TERMINAL_READS = {"", "list", "status", "doctor", "runs", "history", "help", "--help", "-h"}
+
+
+def _cron_decision(action: str, admin: bool) -> dict | None:
+    if action.strip().lower() == "list":
+        return None
+    return None if admin else _block(REFUSAL_ADMIN)
+
+
+def _cron_terminal_write(command: str) -> bool:
+    if "jobs.json" in command and any(verb in command for verb in (">", "tee ", "rm ", "mv ", "cp ")):
+        return True
+    marker = "hermes cron"
+    start = command.find(marker)
+    if start < 0:
+        return False
+    rest = command[start + len(marker):].strip()
+    verb = rest.split()[0].lower() if rest else ""
+    return verb not in _CRON_TERMINAL_READS
+
+
 def _terminal_decision(command: str, admin: bool) -> dict | None:
     lowered = command.lower()
     if _terminal_locked(lowered):
         return _block(REFUSAL_LOCKED)
+    if _cron_terminal_write(lowered):
+        return None if admin else _block(REFUSAL_ADMIN)
     if not admin and _terminal_shared(lowered):
         return _block(REFUSAL_ADMIN)
     return None
@@ -281,6 +310,9 @@ def _terminal_locked(command: str) -> bool:
         "config.yaml",
     )
     if any(marker in command for marker in markers):
+        return True
+    # Unattended dangerous-command approval is a gate, not a scheduled task.
+    if "cron_mode" in command and any(verb in command for verb in (">", "tee ", "config set", "config edit")):
         return True
     if ".env" in command and any(verb in command for verb in (">", "tee ", "rm ", "mv ", "cp ")):
         return True

@@ -113,13 +113,50 @@ def _join(lines: list[str]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def ensure_feishu_cron_toolset(text: str) -> str:
+    """Add cron management when Feishu already has an explicit tool list.
+
+    A missing platform list keeps the official default, which already includes it.
+    Writing a new list here would replace that default with only the cron tool.
+    """
+    lines = text.splitlines()
+    at = _top_level_key(lines, "platform_toolsets:")
+    if at is None:
+        return text
+    end = _section_end(lines, at)
+    section = lines[at + 1:end]
+    feishu_rel = _child_key(section, "feishu:")
+    if feishu_rel is None:
+        return text
+    line = section[feishu_rel]
+    comment = ""
+    raw_value = line.split("#", 1)
+    if len(raw_value) == 2:
+        comment = " #" + raw_value[1].rstrip()
+    inline = raw_value[0].split(":", 1)[1].strip()
+    if inline:
+        present = _flow_names(inline)
+        if present is None or "cronjob" in present:
+            return text
+        merged = ", ".join([*present, "cronjob"])
+        indent = " " * _indent(line)
+        lines[at + 1 + feishu_rel] = f"{indent}feishu: [{merged}]{comment}"
+        return _join(lines)
+    present, items_end = _block_items(section, feishu_rel)
+    if "cronjob" in present:
+        return text
+    indent = _indent(line) + 2
+    lines[at + 1 + items_end:at + 1 + items_end] = [" " * indent + "- cronjob"]
+    return _join(lines)
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print("usage: enable_team_plugins.py CONFIG", file=sys.stderr)
         return 2
     path = Path(argv[1])
     text = path.read_text(encoding="utf-8") if path.is_file() else ""
-    path.write_text(ensure_team_plugins(text), encoding="utf-8")
+    path.write_text(ensure_feishu_cron_toolset(ensure_team_plugins(text)), encoding="utf-8")
     return 0
 
 

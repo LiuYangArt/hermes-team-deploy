@@ -49,6 +49,29 @@ class EnablePluginsTest(unittest.TestCase):
         self.assertIn("model:", text)
 
 
+class FeishuCronToolsetTest(unittest.TestCase):
+    def test_adds_cron_to_an_explicit_feishu_list_and_leaves_other_platforms(self):
+        text = enable.ensure_feishu_cron_toolset(
+            "platform_toolsets:\n  feishu:\n    - file\n    - memory\n  cli:\n    - file\nmodel:\n  default: demo\n"
+        )
+        self.assertIn("    - cronjob\n", text)
+        self.assertEqual(text.count("- cronjob"), 1)
+        self.assertIn("  cli:\n    - file\n", text)
+        self.assertIn("default: demo", text)
+
+    def test_does_not_invent_a_list_or_duplicate_cron(self):
+        untouched = "model:\n  default: demo\n"
+        self.assertEqual(enable.ensure_feishu_cron_toolset(untouched), untouched)
+        present = "platform_toolsets:\n  telegram:\n    - file\n"
+        self.assertEqual(enable.ensure_feishu_cron_toolset(present), present)
+        already = enable.ensure_feishu_cron_toolset(
+            "platform_toolsets:\n  feishu: [file, cronjob]\n"
+        )
+        self.assertEqual(already, "platform_toolsets:\n  feishu: [file, cronjob]\n")
+        added = enable.ensure_feishu_cron_toolset("platform_toolsets:\n  feishu: [file, memory]\n")
+        self.assertIn("feishu: [file, memory, cronjob]", added)
+
+
 class StartupTest(unittest.TestCase):
     def test_startup_installs_tools_and_leaves_grants_and_jobs_alone(self):
         with tempfile.TemporaryDirectory() as tmp:
