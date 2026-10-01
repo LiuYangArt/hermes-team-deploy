@@ -10,9 +10,11 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
+from gateway.platforms.base import SendResult
 from hermes_constants import get_hermes_home
 from plugins.platforms.feishu.adapter import FeishuAdapter
 
+from . import replies
 from .routing import InboundDecision, TopicStore, is_server_thread_id, thread_fields_from_response
 
 logger = logging.getLogger(__name__)
@@ -124,6 +126,84 @@ class LarkTopicAdapter(FeishuAdapter):
             from gateway.session_identity import replace_source
             event.source = replace_source(event.source, thread_id=session_thread)
         await super()._dispatch_inbound_event(event)
+
+    async def on_processing_start(self, event: Any) -> None:
+        message_id = getattr(event, "message_id", "") or ""
+        if message_id:
+            replies.begin(message_id)
+        await super().on_processing_start(event)
+
+    async def on_processing_complete(self, event: Any, outcome: Any) -> None:
+        message_id = getattr(event, "message_id", "") or ""
+        outcome_name = str(getattr(outcome, "value", outcome) or "")
+        text = replies.closing_text(message_id, outcome_name)
+        turn = replies.current()
+        if text and turn and turn.message_id:
+            chat_id = getattr(getattr(event, "source", None), "chat_id", "") or ""
+            await super().edit_message(chat_id, turn.message_id, text, finalize=True)
+        await super().on_processing_complete(event, outcome)
+
+    async def send(
+        self, chat_id: str, content: str, reply_to: Optional[str] = None, metadata: Optional[dict[str, Any]] = None,
+    ) -> SendResult:
+        decision = replies.decide_send(metadata)
+        final = bool((metadata or {}).get("notify"))
+        if decision == "ignore":
+            turn = replies.current()
+            return SendResult(success=True, message_id=turn.message_id if turn else None)
+        if decision == "edit":
+            turn = replies.current()
+            return await self._reuse_reply(
+                chat_id, turn.message_id or "", content, reply_to, metadata, final=final,
+            )
+        result = await super().send(chat_id, content, reply_to=reply_to, metadata=metadata)
+        if getattr(result, "success", False) and getattr(result, "message_id", None):
+            replies.note_created(str(result.message_id))
+            if final:
+                replies.note_delivered()
+        return result
+
+    async def edit_message(
+        self, chat_id: str, message_id: str, content: str, *, finalize: bool = False, metadata: Optional[dict[str, Any]] = None,
+    ) -> SendResult:
+        if replies.decide_edit(message_id) == "ignore":
+            return SendResult(success=True, message_id=message_id)
+        return await super().edit_message(chat_id, message_id, content, finalize=finalize)
+
+    async def _reuse_reply(
+        self, chat_id: str, message_id: str, content: str, reply_to: Optional[str],
+        metadata: Optional[dict[str, Any]], *, final: bool,
+    ) -> SendResult:
+        formatted = self.format_message(content or "")
+        limit = int(getattr(self, "MAX_MESSAGE_LENGTH", 0) or 0)
+        if not final:
+            result = await super().edit_message(chat_id, message_id, replies.clip_progress(formatted, limit))
+            return result
+        chunks = replies.split_final(formatted, limit)
+        if not chunks:
+            return SendResult(success=False, error="Empty final reply")
+        result = await super().edit_message(chat_id, message_id, chunks[0], finalize=True)
+        if not getattr(result, "success", False):
+            return result
+        for chunk in chunks[1:]:
+            extra = await super().send(chat_id, chunk, reply_to=reply_to, metadata=metadata)
+            if not getattr(extra, "success", False):
+                return extra
+        replies.note_delivered()
+        if not getattr(result, "message_id", None):
+            result.message_id = message_id
+        return result
+
+    async def _extract_message_content(self, message: Any):
+        raw_type = getattr(message, "message_type", "") or ""
+        raw_content = getattr(message, "content", "") or ""
+        normalized = self._normalize(raw_type, raw_content, getattr(message, "mentions", None))
+        expected = len(getattr(normalized, "image_keys", []) or []) + len(getattr(normalized, "media_refs", []) or [])
+        text, inbound_type, media_urls, media_types, media_text_inlined, mentions = await super()._extract_message_content(message)
+        note = replies.attachment_note(expected, len(media_urls))
+        if note:
+            text = f"{text}\n\n{note}" if text else note
+        return text, inbound_type, media_urls, media_types, media_text_inlined, mentions
 
     def _start_session_processing(self, event: Any, session_key: str, **kwargs: Any) -> bool:
         message_id = getattr(event, "message_id", "") or ""
