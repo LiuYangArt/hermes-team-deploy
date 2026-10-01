@@ -150,6 +150,9 @@ class SingleRepositoryInstallTest(unittest.TestCase):
         self.assertIn("HERMES_CORE_REVISION=f8489405600c9a7d9d2f307dace086f18d7173ba", example)
         self.assertIn("https://github.com/LiuYangArt/hermes-team-deploy", readme)
         self.assertNotIn("git clone https://github.com/LiuYangArt/hermes-team.git", readme)
+        self.assertNotIn("本机官方", readme)
+        self.assertNotIn("DEPLOYMENT.md", readme)
+        self.assertIn("它会做什么", readme)
         self.assertIn("./scripts/build.sh", readme)
 
 
