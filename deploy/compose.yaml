@@ -1,0 +1,29 @@
+services:
+  hermes-team:
+    build:
+      context: ../../hermes-team
+      dockerfile: Dockerfile
+      args:
+        HERMES_GIT_SHA: 3057b821787cae30a423525790c87e634b1c546e
+    image: hermes-team:official-3057b821
+    container_name: hermes-team-new
+    restart: unless-stopped
+    env_file:
+      - ${HERMES_TEAM_STATE_DIR:-${HOME}/.local/share/hermes-team}/.env
+    environment:
+      HERMES_UID: "501"
+      HERMES_GID: "20"
+      HERMES_HOME: /opt/data
+      HERMES_GATEWAY_BOOTSTRAP_STATE: running
+      HERMES_WRITE_SAFE_ROOT: /opt/data:/workspace/artifacts
+    volumes:
+      - ${HERMES_TEAM_STATE_DIR:-${HOME}/.local/share/hermes-team}/data:/opt/data
+      - ${HERMES_TEAM_WORKSPACE:-${HOME}/HermesTeamWorkspace}:/workspace
+    pids_limit: 256
+    mem_limit: 4g
+    cpus: 2
+    security_opt:
+      - seccomp=./seccomp-bwrap.json
+    tmpfs:
+      - /tmp:exec,size=2g
+    command: ["sleep", "infinity"]
