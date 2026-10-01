@@ -2,8 +2,8 @@ name: hermes-team-official
 services:
   hermes-team:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: deploy/Dockerfile
       args:
         HERMES_CORE_IMAGE: hermes-team-core:${HERMES_CORE_REVISION:?Set HERMES_CORE_REVISION}
       labels:

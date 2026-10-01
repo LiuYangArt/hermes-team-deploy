@@ -10,6 +10,11 @@ RUN rm -rf /opt/hermes/.venv && \
     /opt/hermes/.venv/bin/python -m docker.build_agent && \
     /opt/hermes/.venv/bin/python -c 'import lark_oapi; from pm.extras import available; assert available("feishu")' && \
     chmod -R a+rX,go-w /opt/hermes/.venv && rm -f /opt/hermes/.venv/.lock
-COPY official-tools.json install_official_tools.sh /opt/hermes/
+COPY deploy/official-tools.json deploy/install_official_tools.sh deploy/enable_team_plugins.py deploy/team-startup.sh /opt/hermes/
+COPY extensions/lark-topics /opt/hermes/team-extensions/lark-topics
+COPY extensions/lark-access /opt/hermes/team-extensions/lark-access
+COPY extensions/personal-auth /opt/hermes/team-extensions/personal-auth
 RUN sh /opt/hermes/install_official_tools.sh --image && \
-    chmod -R a+rX /opt/hermes/official-skills /usr/local/lib /usr/local/bin
+    chmod 755 /opt/hermes/team-startup.sh && \
+    cp /opt/hermes/team-startup.sh /etc/cont-init.d/02-hermes-team && \
+    chmod -R a+rX /opt/hermes/official-skills /opt/hermes/team-extensions /usr/local/lib /usr/local/bin

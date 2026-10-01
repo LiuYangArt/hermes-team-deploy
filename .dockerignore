@@ -1,0 +1,14 @@
+*
+!deploy
+!deploy/Dockerfile
+!deploy/official-tools.json
+!deploy/install_official_tools.sh
+!deploy/enable_team_plugins.py
+!deploy/team-startup.sh
+!extensions
+!extensions/lark-topics
+!extensions/lark-topics/**
+!extensions/lark-access
+!extensions/lark-access/**
+!extensions/personal-auth
+!extensions/personal-auth/**

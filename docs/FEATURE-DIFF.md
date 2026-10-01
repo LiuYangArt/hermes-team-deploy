@@ -17,7 +17,7 @@
 | 原图与任务附件 | `team/tests/test_team_runtime.py:114`（字节一致性）、`:139-149`（路径/清理）；Helius 测试只覆盖收费生图 | 原图上传与 Helius 生图是两项不同能力 | `extensions/`，以后做，见 #22 | 上传、回读、不可读时明确反馈；生图另行评估 |
 | 文档评论/引用回复 | 官方 Core 已有 `plugins/platforms/feishu/feishu_comment.py`、`feishu_comment_rules.py` 及对应 `core/tests/gateway/test_feishu_comment*.py`；旧 CN 基线到旧 HEAD 无团队新增差异 | 官方已具备，当前不迁移旧实现 | 官方 Core | 用官方测试验收评论线程、权限和回复回读 |
 | Lark Tasks / ACP | `team/task-bridge/`、`team/acp/`；`test_job_deployment.py` | 当前后台已暂停，尚未迁移 | `extensions/` + `deploy/` | Linux 容器服务、专用身份、真实请求回读 |
-| Meegle 分诊与负责人判断 | `team/jobs/meegle-triage/`；其单元测试 | 不另建任务包。操作用官方 Meegle 技能 | 官方技能见 #9 | 需要日程时用 Hermes 定时任务挂上该技能 |
+| Meegle 分诊与负责人判断 | `team/jobs/meegle-triage/`；其单元测试 | 不另建任务包。操作用官方 Meegle 技能，每人只用自己的授权 | 官方技能见 #9；授权隔离见 #23，`extensions/personal-auth/` | 需要日程时用 Hermes 定时任务挂上该技能 |
 | 每日摘要 | `team/jobs/daily-summary/`；`test_cron_daily_summary.py` | 不另建任务包 | Hermes 定时任务 | 需要时用定时任务挂上已安装技能，不进入公共镜像 |
 | 会议、审批、联系人等 Lark 技能 | `team/skills/lark-*` | 按真实需求逐项启用，不整体复制 | 独立扩展或任务 | 每项先明确使用场景、权限和验收 |
 | 旧聊天历史、旧插件、旧个人授权 | 旧运行目录和 `team/.local/` | 本阶段不迁移 | 保留旧状态 | 不读入新镜像、不提交 Git |

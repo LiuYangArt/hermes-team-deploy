@@ -81,7 +81,7 @@
 
 ### 2. Linux Docker 最小交付
 
-- [x] 提供 `deploy/Dockerfile`、`deploy/compose.yaml`、`deploy/.env.example`、`rules/SOUL.md` 和构建入口 `scripts/build.sh`；Feishu 依赖已固化到镜像。
+- [x] 提供 `deploy/Dockerfile`、`deploy/compose.yaml`、`deploy/.env.example`、`rules/SOUL.md` 和构建入口 `scripts/build.sh`；Feishu 依赖已固化到镜像。启动时把镜像里的 Lark、Meegle 和团队扩展放进运行目录并启用，不用再单独安装。
 - [ ] 补齐可交给 IT 的机器人/模型配置及权限模板；当前实际配置已在受保护运行目录，尚未形成完整模板。
 - [ ] 先验证目标 Linux 架构；已在 macOS Docker Desktop 的 Linux arm64 容器完成构建、运行和 Lark 收发；独立 Linux 服务器和 amd64 尚未验证。
 - [x] Compose 的状态目录、UID/GID 已参数化，设置持久挂载和重启策略；新网关不依赖 launchd，实际网关进程以 `hermes` 用户运行（初始化仍使用 root）。
@@ -96,7 +96,7 @@
 - [ ] 同话题后来的请求排队，不打断正在做的事。只有这件事的发起人能停止、批准和回答确认。
 - [ ] 进度与最终回答复用消息，覆盖迟到更新、取消、失败、长答案及附件。
 - [ ] 引用消息内容与原生话题归属；本轮已验证已有原生话题内 Q1 的精确引用复述及 `thread_id/root_id/parent_id`，主群无 `thread_id` 的引用输入、附件行为仍未覆盖。
-- [ ] 同事进门、三层权限和超过 7 天的文件清理已在测试群验证（`hermes-team-deploy#15`）。Lark 与 Meegle 以技能接入（`hermes-team-deploy#9`）。Lark 只用机器人身份，对话里不能扫码或改成个人身份。每人自己的 Lark 任务和 Meegle 操作（`#23`）、词典（`#21`）和原图附件（`#22`）以后再做。
+- [ ] 同事进门、三层权限和超过 7 天的文件清理已在测试群验证（`hermes-team-deploy#15`）。Lark 与 Meegle 以技能接入（`hermes-team-deploy#9`）。Lark 只用机器人身份，对话里不能扫码或改成个人身份。看自己的 Lark 任务和 Meegle 已按说话人分开（`#23`，`extensions/personal-auth/`）；两个真人分别回读还要等人各自授权。词典（`#21`）和原图附件（`#22`）以后再做。
 - [ ] 不机械复用旧 adapter；保留官方新实现，按行为契约移植。
 
 ### 4. Tasks/ACP 与任务资产
