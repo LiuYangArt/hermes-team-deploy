@@ -9,4 +9,4 @@
 
 Core 的 `origin` 指向 LiuYangArt/hermes-team，`upstream` 指向官方；初始内容与上述官方提交完全一致。不是 GitHub fork 网络成员，保留官方历史和许可，可以正常 fetch/merge 官方更新。新建两仓库均为私有。
 
-官方软件的完整源码已到本地，当前不安装依赖、不启动机器人、不载入正式凭据。后续按 PLAN.md 实施。
+以上记录初始取源快照。此后已完成本机 Docker 部署和现有机器人接管，当前进度以 PLAN.md 和 DEPLOYMENT.md 为准。

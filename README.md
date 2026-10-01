@@ -1,6 +1,6 @@
 # Hermes Team 云端部署工程
 
-状态：正在实施官方最小机器人 Docker 部署，实际验收见 docs/DEPLOYMENT.md。
+状态：本机官方 Docker 后台已接管现有机器人并完成基础 Lark 收发；团队功能移植与云端交付待继续。实际验收见 docs/DEPLOYMENT.md。
 
 - Core：https://github.com/LiuYangArt/hermes-team
 - 官方：https://github.com/NousResearch/hermes-agent
