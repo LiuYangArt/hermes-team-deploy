@@ -6,8 +6,8 @@
 
 | 能力 | 旧实现与测试证据 | 当前判断 | 新归属 | 验收/下一步 |
 | --- | --- | --- | --- | --- |
-| Lark 基础收发、机器人身份 | `plugins/platforms/feishu/adapter.py`；`team/tests/test_lark_identity.py` | 官方基础链路已通过单用户真实回读；群聊身份仍需实测 | 官方 Core + `extensions/` 配置 | 回读群聊、@对象和消息归属 |
-| 原生话题、引用锚定 | 旧 `thread_router.py`、`thread_state.py`；提交 `560495e001`；`team/tests/test_lark_threads.py` | 官方已识别 `message.thread_id`、`reply_to_message_id` 并可锚定回复；普通引用不会自动变成话题 | 官方 Core 先验收；成员语义另归扩展 | 两个话题互不串上下文，引用绑定原生根消息 |
+| Lark 基础收发、机器人身份 | `plugins/platforms/feishu/adapter.py`；`team/tests/test_lark_identity.py` | 官方基础链路及本轮群聊发送身份已通过真实回读 | 官方 Core + `extensions/` 配置 | 已回读群聊、@对象和消息归属；多成员待验收 |
+| 原生话题、引用锚定 | 旧 `thread_router.py`、`thread_state.py`；提交 `560495e001`；`team/tests/test_lark_threads.py` | 官方已识别 `message.thread_id`、`reply_to_message_id` 并可锚定回复；普通引用不会自动变成话题 | 官方 Core 先验收；成员语义另归扩展 | 已有双话题隔离、引用文本和归属已通过；自动开题待实现 |
 | 成员参与、旁听、恢复 | 旧 `thread_state.py`、`thread_router.py`；`team/tests/test_thread_conversations.py` | 官方缺少 `/listen`、成员状态/generation 持久化和旁听背景语义 | `extensions/` | @参与、`/listen`、再次 @恢复及重启恢复 |
 | 同话题排队与请求者绑定 | 旧 `thread_router.py`、`thread_state.py`、`governance.py`；相关团队测试 | 官方有通用会话排队，但缺少按话题/请求者隔离、审批/停止/澄清绑定 | `extensions/`；若无法接入生命周期再评估 Core 补丁 | 排队、停止、审批、澄清只允许当前请求者 |
 | 进度与最终回复 | 旧 `reply_state.py`；提交 `93420a244`；`test_lark_reply_replacement.py` | 官方有 `send`/`edit_message`，但缺少旧 ReplyState 的进度锁定、审批等待和取消/失败收尾语义 | `extensions/`；先核对处理生命周期钩子 | 进度、最终、失败、取消、长答案均回读 |
@@ -25,10 +25,16 @@
 ## 已确认的实施边界
 
 - 当前没有证据证明需要修改 Core；官方已提供 Feishu 话题识别、回复锚定、消息编辑、澄清和卡片承载能力。成员治理、旁听、请求者绑定和进度状态先做部署扩展。
-- 官方是否有足够的入站分发前和处理生命周期钩子仍需最小复现确认；只有扩展无法可靠接入时才建立 Core Issue。
+- 已完成最小钩子与注册探针评估：`pre_gateway_dispatch` 和 `on_processing_*` 单独不足以完成首答锚定/别名绑定，但公开 `register_platform` 可替换工厂并保留平台字段。优先评估 Deploy 薄适配器；只有该接缝经行为回归证明不足时才建立 Core Issue。
 - 旧 adapter、team 目录和安装器不整体复制；每项能力必须有新归属、行为测试和脱敏证据。
 - 扩展实现前先完成 Issue #4 的差异清点；任务迁移必须等待对应独立 Issue。
 
 ## 2026-10-01 首次 @ 复核
 
-Issue #5 的真实群消息回读显示：首次 @ 请求无 thread_id，机器人回复的 root_id/parent_id 指向原请求，但 thread_id 为空。官方对已有话题的支持不等于自动开话题。原生话题连续性、引用和双话题隔离仍待补验；消息与身份 ID 只保存在本地 artifacts/issue-5/evaluation.json。
+Issue #5 的真实群消息回读显示：首次 @ 请求无 thread_id，机器人回复的 root_id/parent_id 指向原请求，但 thread_id 为空。官方对已有话题的支持不等于自动开话题。首次复核时，原生话题连续性、引用和双话题隔离尚待补验（结果见下节）；消息与身份 ID 只保存在本地 artifacts/issue-5/evaluation.json。
+
+## 2026-10-01 Issue #5 补验补充
+
+本轮在授权 `my bots` 群复用两个已有原生话题完成 A/B 连续回读、Q1 精确引用复述和双话题隔离；未重复发送首次群聊 @。首次普通群聊 @ 仍无 `thread_id`，A2 不带 @ 的后续消息未进入持久处理会话。详见 `docs/LARK-TOPIC-ASSESSMENT.md` 与 `artifacts/issue-5/evaluation.json`。
+
+建议方案：先在 Deploy 实现固定当前 Core 基线的 Feishu 薄适配器，覆盖批处理前路由归一、首答原消息锚定、服务端 thread/root 回读绑定和已有准入语义的最小增量；保留官方传输、鉴权、会话和错误处理。`register_platform` 的临时探针已通过，但内部适配器接缝属于基线依赖，需随 Core 更新做行为回归。当前没有被证据证明必须修改 Core 的缺口。

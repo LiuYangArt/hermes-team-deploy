@@ -76,7 +76,7 @@
 
 - [x] 固定官方 Core 提交 `3057b821787cae30a423525790c87e634b1c546e`，检查官方 Docker、插件及 Feishu 接口。
 - [x] 在独立运行目录复用现有机器人身份，跑通官方 Hermes → Lark 收到请求 → 回答；回读消息 ID 为 `om_x100b64e851773ca0ff4f0c487d3c7f5`。
-- [ ] 确认群/话题标识和消息归属；已确认授权群 `my bots` （真实群 ID 仅保存在本地证据；`chat_mode=group`、`group_message_type=chat`），首次 @ 的真实回读显示机器人回复带 `root_id/parent_id` 但无 `thread_id`，因此不能视为自动开启原生话题；原生话题连续性、引用和跨话题隔离仍待在准确机器人身份下补验。脱敏证据见 `artifacts/issue-5/evaluation.json`。
+- [x] 确认群/话题标识和消息归属；`my bots` 已确认是授权普通群（真实群 ID 仅保存在本地证据；`chat_mode=group`、`group_message_type=chat`）。首次 @ 的真实回读仍只有 `root_id/parent_id`、没有 `thread_id`，因此不会自动开启原生话题；已用运行中的 Hermi 身份在两个已有原生话题内完成连续回复、引用锚定回读和隔离验证。精确证据见 `artifacts/issue-5/evaluation.json` 及同目录回读文件。
 - [x] 记录基线测试、日志及已知限制；已停止旧后台并接管现有机器人。证据见 `docs/DEPLOYMENT.md` 和本地 `artifacts/lark-e2e-receive-2.json`。
 
 ### 2. Linux Docker 最小交付
@@ -92,10 +92,10 @@
 
 ### 3. 恢复团队 Lark 行为
 
-- [ ] 按成员 @参与、/listen 旁听及恢复；已完成单用户真实收发，旁听、恢复和不同话题上下文隔离待验证。
+- [ ] 按成员 @参与、/listen 旁听及恢复；已完成单用户真实收发和两个已有原生话题隔离；旁听、恢复、多成员仍待验证。
 - [ ] 同话题按成员排队，当前请求者才能停止、审批和回答澄清。
 - [ ] 进度与最终回答复用消息，覆盖迟到更新、取消、失败、长答案及附件。
-- [ ] 引用消息内容与原生话题归属；明确无法读取附件时的行为。
+- [ ] 引用消息内容与原生话题归属；本轮已验证已有原生话题内 Q1 的精确引用复述及 `thread_id/root_id/parent_id`，主群无 `thread_id` 的引用输入、附件行为仍未覆盖。
 - [ ] 群聊 Lark CLI 固定机器人身份，管理员操作与普通业务操作分离。
 - [ ] 原图上传任务附件并回读；项目词典和业务工具按插件接入。
 - [ ] 不机械复用旧 adapter；保留官方新实现，按行为契约移植。
@@ -129,7 +129,7 @@
 - Session 归属：后续任务必须在 Codex 的 `hermes-team` 项目和统一工作区创建；公共区域/Projectless Session 不作为正式入口。
 
 
-1. Issue #5 已确认首次 @ 的回复不是原生话题；补验已有原生话题连续性、引用及双话题隔离，随后评估自动开话题的最小扩展方案。验收未齐，保持 Open / In Progress。
+1. Issue #5 已确认首次 @ 的回复不是原生话题；两个已有原生话题的连续回复、引用锚定路由和双话题隔离已完成真实回读。自动开话题仍需最小扩展评估：`pre_gateway_dispatch` 只有 skip/rewrite/allow，处理生命周期钩子只观察开始/完成，不能单独创建首个原生话题；保持 Open / In Progress。
 2. 按差异表和 Project 中 Issue #5-#19 的归属逐项恢复团队能力；先做公共扩展，再处理 Tasks/ACP 和独立任务。
 3. 补齐配置模板、健康检查和 Linux 云服务器交付；Tasks/ACP 与定时任务按独立阶段迁移。
 
@@ -163,4 +163,13 @@
 
 - [x] 审查现有规则、差异表及 Codex hook 源码和测试；运行 15 项 hook 测试、脚手架和两仓库差异检查。
 - [x] 用户授权分别提交 Core 规则与 Deploy 文档/hooks；不推送，不创建分支，不将 artifacts 或真实群 ID 纳入提交。
-- [ ] Issue #5 仍缺原生话题连续性、引用内容和双话题隔离实测；下一 session 继续该 Issue，不将首轮评估冒充完整验收。
+- [x] Issue #5 已有原生话题连续性、Q1 精确引用复述和双话题隔离均有真实回读；首次普通群聊 @ 自动开话题及不带 @ 的后续参与仍未实现。当前先评估 Deploy 薄平台适配器并固定 Core 基线；只有适配器接缝经实证不足时才建立通用 Core Issue。
+
+## 2026-10-01 Issue #5 补验与架构结论
+
+- [x] `my bots` 中的 A/B 两个原生话题由受管 Hermi 容器身份处理；A 回读 `ORCHID742/靛蓝`，B 回读 `BIRCH593/未约定`，上下文没有串线。容器日志与 Lark API 回读均保存在 `artifacts/issue-5/`，源码与运行镜像关键文件 SHA 一致。
+- [x] A 话题内 Q1 引用回复精确复述被引用原文“A已记住。”，并回读 A 的代号与颜色；请求和回答的 `thread_id/root_id/parent_id` 均保持在 A。该证据覆盖已有话题内引用，不覆盖主群无 `thread_id` 的引用输入。
+- [x] A2 不带 @ 的后续消息未产生 Hermi 回答，也未进入持久处理会话；这与官方默认 @ 门控行为一致，但没有逐条拒绝日志，未把无回答误判为某个单一内部层的根因。
+- [x] 只读对照旧 CN `thread_router.py`、`thread_state.py`、`reply_state.py` 与官方 adapter：旧实现把无 thread 的群消息用 `message_id` 建本地 topic，并维护成员/队列/回复状态；官方只在已有 `message.thread_id` 时设置 thread metadata。
+- [x] 方案归属：话题参与、成员状态和别名应在 Deploy 扩展。优先评估继承当前 FeishuAdapter 的薄平台适配器，覆盖批处理前归一、首答锚定/发送回读和别名绑定；保留官方连接、鉴权、收发与错误处理并固定 Core 基线。`pre_gateway_dispatch` 和 `on_processing_*` 单独不足，但本轮没有证据证明必须修改 Core。
+- [ ] 下一步真实实现和回归仍未完成：首次 @ 自动开题、失败无顶层漏发、免 @ 成员参与、重启恢复和主群无 thread 引用输入仍保持 Issue #5 Open / In Progress。
