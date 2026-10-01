@@ -2,8 +2,10 @@ name: hermes-team-official
 services:
   hermes-team:
     build:
-      context: ../../hermes-team
+      context: .
       dockerfile: Dockerfile
+      args:
+        HERMES_CORE_IMAGE: hermes-team-core:${HERMES_CORE_REVISION:?Set HERMES_CORE_REVISION}
       labels:
         org.opencontainers.image.revision: ${HERMES_CORE_REVISION:?Set HERMES_CORE_REVISION}
     image: hermes-team-official:${HERMES_CORE_REVISION:?Set HERMES_CORE_REVISION}
