@@ -17,6 +17,41 @@
 
 旧 hermes-agent 仅作为功能和历史参考，不能整目录覆盖新 Core。GitHub 账号已有同网络 fork，因此新 Core 是独立仓库，不显示 fork 标签，但沿用官方历史及 upstream 更新关系。没有导入 CN 提交。
 
+## 本地工程路径与移植参考入口
+
+以下是当前 Mac 上的实际路径。后续 agent 从新工程继续工作时，应自行跨目录读取旧实现与测试，不要求用户手动切换工程。这些路径用于开发参考，不得硬编码到云端部署配置或镜像中。
+
+| 用途 | 本地绝对路径 |
+| --- | --- |
+| 统一工作入口 | `/Users/apple/CodeProjects/hermes-team-workspace`（`core/`、`deploy/` 分别链接到下列新工程） |
+| 新官方 Core，必要通用补丁的目标 | `/Users/apple/CodeProjects/hermes-team` |
+| 新部署工程，扩展、规则、任务和文档的目标 | `/Users/apple/CodeProjects/hermes-team-deploy` |
+| **已做 Lark 团队定制的旧 Hermes CN 完整源码，移植来源** | **`/Users/apple/CodeProjects/hermes-agent`** |
+
+旧工程参考快照：2026-10-01 核对时 HEAD 为 `ac0b6703c0`，工作区无未提交改动。开始移植前重新执行 `git -C /Users/apple/CodeProjects/hermes-agent status --short` 和 `git -C /Users/apple/CodeProjects/hermes-agent log -12 --oneline`，以实际源码与历史为准，不只参考远端 CN 仓库。
+
+### 旧功能具体从哪里找
+
+| 参考内容 | 旧工程入口 | 新工程归属 |
+| --- | --- | --- |
+| 团队维护说明、资产清单及安装逻辑 | `/Users/apple/CodeProjects/hermes-agent/team/AGENTS.md`、`/Users/apple/CodeProjects/hermes-agent/team/README.md`、`/Users/apple/CodeProjects/hermes-agent/team/sources.json`、`/Users/apple/CodeProjects/hermes-agent/team/manage.py` | 先用于清点，不整体复制安装器 |
+| Lark 收发、话题、引用、进度及最终回复 | `/Users/apple/CodeProjects/hermes-agent/plugins/platforms/feishu/`，重点为 `adapter.py`、`thread_router.py`、`thread_state.py`、`reply_state.py` | 优先官方已有能力，其次新部署工程 `extensions/`；必要通用 Core 补丁登记到 `docs/PATCHES.md` |
+| 团队权限、请求者身份、词典和执行约束 | `/Users/apple/CodeProjects/hermes-agent/team/governance.py`、`/Users/apple/CodeProjects/hermes-agent/team/lingo.py`、`/Users/apple/CodeProjects/hermes-agent/team/sandbox.py` | 按通用能力拆到新部署工程 `extensions/`，不夹带单任务规则 |
+| 旧插件与技能 | `/Users/apple/CodeProjects/hermes-agent/team/plugins/`、`/Users/apple/CodeProjects/hermes-agent/team/skills/` | 逐项审查并按用途归入扩展或独立任务，不整体启用旧插件 |
+| Lark Tasks / ACP 桥接 | `/Users/apple/CodeProjects/hermes-agent/team/task-bridge/`、`/Users/apple/CodeProjects/hermes-agent/team/acp/` | 公共桥接在新部署工程 `extensions/`，容器编排在 `deploy/`；任务专属规则归对应任务 |
+| Meegle 分诊、翻译、负责人判断 | `/Users/apple/CodeProjects/hermes-agent/team/jobs/meegle-triage/` | `/Users/apple/CodeProjects/hermes-team-deploy/jobs/meegle-triage/` |
+| 每日摘要任务 | `/Users/apple/CodeProjects/hermes-agent/team/jobs/daily-summary/` | `/Users/apple/CodeProjects/hermes-team-deploy/jobs/daily-summary/` |
+| 团队行为回归测试与排障记录 | `/Users/apple/CodeProjects/hermes-agent/team/tests/`、`/Users/apple/CodeProjects/hermes-agent/team/postmortems/` | 公共行为测试放新部署工程 `tests/`；单任务测试随所属 `jobs/<job-name>/` |
+
+上表是查找入口，不是完整改动清单。旧功能还可能涉及 `/Users/apple/CodeProjects/hermes-agent/gateway/`、`/Users/apple/CodeProjects/hermes-agent/hermes_state.py` 等通用代码；从入口追踪调用和 Git 历史，避免只复制 adapter 而漏掉其依赖。
+
+### 源码与运行资产的边界
+
+- 旧运行资产：`/Users/apple/.local/share/hermes-team`；旧共享工作区：`/Users/apple/HermesTeamWorkspace`。仅在核对部署差异时按需读取，不能当作新工程源码或整目录导入。
+- 新运行资产：`/Users/apple/.local/share/hermes-team-official`；新容器：`hermes-team-new`。后续移植在新工程实现、构建和验收，旧 CN 源码只作参考。
+- 状态目录及旧工程 `team/.local/` 可能包含凭据、个人授权、内部内容和日志，不能提交、打包进镜像或直接复制进计划文档。
+- 每移植一项，记录旧实现位置、对应测试、官方是否已覆盖、新归属与验收结果。单个任务的脚本、提示词、依赖和业务规则必须留在该任务目录，不能因旧代码曾混入本体就照搬其结构。
+
 ## 设计边界
 
 1. 官方框架负责对话、工具执行、Cron、存储；不要另造引擎。
