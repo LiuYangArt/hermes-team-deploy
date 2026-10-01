@@ -1,4 +1,5 @@
 artifacts/
+.build/
 .env
 .env.*
 !.env.example
