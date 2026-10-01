@@ -1,0 +1,4 @@
+name: lark-topics
+version: "0.1.0"
+description: "把群里第一次 @ 收成同一条原生话题，后续消息沿用这条讨论。发送失败时不改发到群顶层。"
+author: hermes-team
