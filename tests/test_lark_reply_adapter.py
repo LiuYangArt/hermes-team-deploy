@@ -48,7 +48,10 @@ class FakeFeishuAdapter:
         if self.send_release is not None:
             await self.send_release.wait()
         if self.send_results:
-            return self.send_results.pop(0)
+            result = self.send_results.pop(0)
+            if isinstance(result, BaseException):
+                raise result
+            return result
         return SendResult(True, f"om_created_{len(self.created)}")
 
     async def edit_message(self, chat_id, message_id, content, *, finalize=False, metadata=None):
@@ -311,6 +314,60 @@ class LarkReplyAdapterTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(adapter.created), 1)
         self.assertEqual(len(adapter.edited), 1)
         self.assertTrue(result.success)
+
+    async def test_partial_long_final_retries_only_failed_chunk_and_blocks_progress(self):
+        adapter = self.adapter()
+        adapter.MAX_MESSAGE_LENGTH = 4
+        replies.begin("event")
+        await adapter.send("chat", "start")
+        adapter.send_results = [
+            SendResult(True, "om_extra_1"),
+            SendResult(False, error="third chunk failed"),
+            SendResult(True, "om_extra_2"),
+        ]
+
+        failed = await adapter.send("chat", "abcdefghijkl", metadata={"notify": True})
+        direct = await adapter.edit_message("chat", "om_created_1", "direct overwrite")
+        progress = await adapter.send("chat", "progress overwrite")
+        retried = await adapter.send("chat", "abcdefghijkl", metadata={"notify": True})
+
+        self.assertFalse(failed.success)
+        self.assertTrue(direct.success)
+        self.assertTrue(progress.success)
+        self.assertTrue(retried.success)
+        self.assertEqual([item[2] for item in adapter.edited], ["abcd"])
+        self.assertEqual([item[1] for item in adapter.created], ["tart", "efgh", "ijkl", "ijkl"])
+        self.assertTrue(replies.current().delivered)
+
+    async def test_transport_timeout_closes_turn_without_pending_task_or_new_create(self):
+        adapter = self.adapter()
+        adapter.send_release = asyncio.Event()
+        replies.begin("event")
+
+        with patch.object(replies, "TRANSPORT_TIMEOUT", 0.01):
+            with self.assertRaises(asyncio.TimeoutError):
+                await adapter.send("chat", "will time out")
+        await asyncio.sleep(0)
+        pending = [task for task in asyncio.all_tasks() if task is not asyncio.current_task() and not task.done()]
+        ignored = await adapter.send("chat", "must not create")
+
+        self.assertTrue(replies.current().closed)
+        self.assertTrue(ignored.success)
+        self.assertEqual(len(adapter.created), 1)
+        self.assertEqual(pending, [])
+
+    async def test_transport_exception_closes_turn_and_prevents_retry_create(self):
+        adapter = self.adapter()
+        adapter.send_results = [RuntimeError("transport broke")]
+        replies.begin("event")
+
+        with self.assertRaisesRegex(RuntimeError, "transport broke"):
+            await adapter.send("chat", "will raise")
+        ignored = await adapter.send("chat", "must not create")
+
+        self.assertTrue(replies.current().closed)
+        self.assertTrue(ignored.success)
+        self.assertEqual(len(adapter.created), 1)
 
 
 if __name__ == "__main__":

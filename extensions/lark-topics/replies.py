@@ -54,6 +54,9 @@ async def settle_on_cancel(operation):
     except asyncio.TimeoutError:
         current().closed = True
         raise
+    except Exception:
+        current().closed = True
+        raise
 
 
 def begin(event_id: str) -> None:
@@ -100,7 +103,7 @@ def decide_edit(message_id: str) -> str:
     turn = current()
     if turn is None or not turn.message_id or message_id != turn.message_id:
         return "pass"
-    if turn.closed or turn.delivered:
+    if turn.closed or turn.delivered or turn.final_chunks:
         return "ignore"
     return "pass"
 
