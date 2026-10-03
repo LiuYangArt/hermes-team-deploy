@@ -214,4 +214,4 @@
 - [x] 本地 `test_lark_replies`、`test_lark_topics` 和新增 `test_lark_reply_adapter` 共 35 项通过；云端 ASTRA 已重建并回读关键扩展文件哈希与本地一致。
 - [x] 云端真实 `my bots` 回合已完成一次多技能读取：真实请求和最终回复均回读，数据库记录 `skill_view` 3 次、`terminal` 1 次，单回合只有 1 条 bot 回复；证据见 `artifacts/issue-8/test-a-thread.json` 与 `artifacts/issue-8/test-a-tools.json`。
 - [x] 云端真实长答案完整回读 180 行，分为 8000 和 4239 字符的两条消息，均在同一原生话题；取消回合的原进度已更新为停止提示。证据见 `artifacts/issue-8/test-b-summary.json`、`artifacts/issue-8/cancel-thread.json`。
-- [ ] 仍待真实入口覆盖失败和不可读附件反馈；适配器级回归测试不能代替 Lark 入口验收。
+- [x] 真实入口失败回合执行 `false`，回读失败退出码 1 且未重试；不可读附件回读明确要求重新上传替换件；引用回归回读了被引用消息原文，且回复保持在同一话题。证据见 `artifacts/issue-8/final-main.json`、`final-attachment-threads.json`、`quote-thread.json`。
