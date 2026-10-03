@@ -135,7 +135,7 @@ class LarkApprovalAdapterTest(unittest.IsolatedAsyncioTestCase):
         self.pending = [{"request_id": "current"}]
         await self._send("current")
         wrong = self._click("approve_once", message="old-card")
-        self.assertEqual(wrong["elements"][0]["content"], "Approval expired")
+        self.assertIn("本次点击没有批准或执行任何命令", wrong["elements"][0]["content"])
         self.assertEqual(self.resolutions, [])
         self.assertEqual(self._click("deny"), {"resolved": "deny", "user": "admin"})
         self.assertEqual(self._click("deny"), {"resolved": "deny", "user": "admin"})
@@ -149,7 +149,7 @@ class LarkApprovalAdapterTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.resolutions, [])
         self.pending.clear()
         expired = self._click("approve_once")
-        self.assertEqual(expired["elements"][0]["content"], "Approval expired")
+        self.assertIn("本次点击没有批准或执行任何命令", expired["elements"][0]["content"])
         self.assertEqual(self.resolutions, [("session", "once", "current")])
 
     async def _send(self, request_id):

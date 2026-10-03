@@ -87,12 +87,11 @@ class LarkTopicAdapter(FeishuAdapter):
 
     @staticmethod
     def _expired_approval_card() -> dict[str, Any]:
-        from agent.i18n import t
-        message = t("platform.shared.approval_expired")
+        message = "这个批准请求已过期或已被处理。本次点击没有批准或执行任何命令，请查看本话题中的任务结果。"
         return {
             "config": {"wide_screen_mode": True},
             "header": {
-                "title": {"content": message, "tag": "plain_text"},
+                "title": {"content": "批准已失效", "tag": "plain_text"},
                 "template": "grey",
             },
             "elements": [{"tag": "markdown", "content": message}],

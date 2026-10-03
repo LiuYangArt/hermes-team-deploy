@@ -61,6 +61,45 @@ class ApprovalAccessTest(unittest.TestCase):
         with patch.object(self.adapter_module, 'get_hermes_home', return_value=self.root):
             self.assertFalse(self.adapter._is_interactive_operator_authorized('ou_admin'))
 
+    def test_expired_card_cannot_resolve_a_new_request_or_another_session(self):
+        from tools import approval
+        from tools.approval_gateway_wait import _ApprovalEntry
+
+        old = _ApprovalEntry({'request_id': 'old-request', 'command': 'same command'})
+        current = _ApprovalEntry({'request_id': 'current-request', 'command': 'same command'})
+        other = _ApprovalEntry({'request_id': 'other-request', 'command': 'same command'})
+        with approval._lock:
+            approval._gateway_queues['session'] = [old, current]
+            approval._gateway_queues['other-session'] = [other]
+            approval._gateway_queues['session'].remove(old)
+        self.addCleanup(approval._gateway_queues.pop, 'session', None)
+        self.addCleanup(approval._gateway_queues.pop, 'other-session', None)
+
+        self.adapter._approval_state = {7: {
+            'session_key': 'session', 'chat_id': 'chat', 'message_id': 'old-card',
+            'request_id': 'old-request',
+        }}
+        event = SimpleNamespace(
+            operator=SimpleNamespace(open_id='ou_admin'),
+            context=SimpleNamespace(open_chat_id='chat', open_message_id='old-card'),
+        )
+        with patch.object(self.adapter_module, 'get_hermes_home', return_value=self.root), patch.object(
+            self.adapter, '_card_response', side_effect=lambda card=None: card,
+        ):
+            response = self.adapter._handle_approval_card_action(
+                event=event,
+                action_value={'approval_id': 7, 'hermes_action': 'approve_once'},
+                loop=None,
+            )
+
+        self.assertIn('本次点击没有批准或执行任何命令', response['elements'][0]['content'])
+        self.assertEqual(approval.list_gateway_approvals('session'), [current.data])
+        self.assertEqual(approval.list_gateway_approvals('other-session'), [other.data])
+        self.assertIsNone(current.result)
+        self.assertFalse(current.event.is_set())
+        self.assertIsNone(other.result)
+        self.assertFalse(other.event.is_set())
+
     def test_text_approval_is_gated_but_normal_answers_and_personal_requests_pass(self):
         for actor, text, pending, blocked in [
             ('ou_other', '/approve always', True, True),
