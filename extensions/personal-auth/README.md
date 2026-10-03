@@ -19,6 +19,8 @@ Lark 授权申请任务读取和工作邮箱读取权限，官方设备流程附
 
 ## 保存与验证
 
+已授权的查询通过单条直接 CLI 调用运行，扩展只绑定当前人的环境目录，不额外包装 `sh -c`。日期查询保持原样；这两类正常读取无需管理员批准，任意 shell 脚本仍接受原有安全检查。
+
 状态在受保护运行目录 `personal-auth/<发起人>/`。`lark/` 同时保存配置和独立 `.data/` 令牌存储；`meegle-home/` 保存官方 Meegle 状态。设备码不返回模型，不写入 Git。授权二维码属于临时产物，完成、过期检查或退出时删除本地文件。已有但未核验的旧授权不直接启用，需要本人重新授权。
 
 单元验证：`python3 -m unittest discover -s tests -p 'test_personal*.py' -v`。启动验证：`python3 -m unittest discover -s tests -p 'test_team_startup.py' -v`。本地证据在 `artifacts/issue-23/`。
