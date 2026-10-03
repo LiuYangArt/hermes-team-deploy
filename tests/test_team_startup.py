@@ -50,6 +50,14 @@ class EnablePluginsTest(unittest.TestCase):
 
 
 class FeishuCronToolsetTest(unittest.TestCase):
+    def test_personal_auth_keeps_defaults_and_other_platforms(self):
+        result = enable.ensure_feishu_toolset("model:\n  default: demo\n", "personal_auth")
+        self.assertIn("feishu: [hermes-feishu, personal_auth]", result)
+        self.assertEqual(enable.ensure_feishu_toolset(result, "personal_auth"), result)
+        result = enable.ensure_feishu_toolset("platform_toolsets:\n  feishu: [terminal, file]\n  cli: [file]\n", "personal_auth")
+        self.assertIn("feishu: [terminal, file, personal_auth]", result)
+        self.assertIn("  cli: [file]", result)
+
     def test_adds_cron_to_an_explicit_feishu_list_and_leaves_other_platforms(self):
         text = enable.ensure_feishu_cron_toolset(
             "platform_toolsets:\n  feishu:\n    - file\n    - memory\n  cli:\n    - file\nmodel:\n  default: demo\n"
