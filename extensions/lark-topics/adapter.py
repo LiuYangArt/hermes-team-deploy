@@ -62,25 +62,15 @@ class LarkTopicAdapter(FeishuAdapter):
         self._approval_action_lock = threading.Lock()
         self._settled_approval_cards: dict[tuple[Any, str], dict[str, Any]] = {}
 
-    def _pending_approval_request(self, session_key: str, request_id: str) -> Optional[dict[str, Any]]:
-        if not session_key or not request_id:
-            return None
-        from tools.approval import list_gateway_approvals
-        matches = [
-            request for request in list_gateway_approvals(session_key)
-            if request.get("request_id") == request_id
-        ]
-        return matches[0] if len(matches) == 1 else None
-
     async def _send_interactive_card(
         self, chat_id: str, card: dict[str, Any], metadata: Optional[dict[str, Any]], failure_message: str, *,
         state_map: dict[int, dict[str, str]], state_id: int, session_key: str,
     ) -> SendResult:
         is_approval = state_map is self._approval_state
         request_id = str((metadata or {}).get("exec_approval_request_id", "") or "")
-        if is_approval and self._pending_approval_request(session_key, request_id) is None:
+        if is_approval and not request_id:
             logger.warning("[LarkTopics] refusing an approval card without one pending request id")
-            return SendResult(success=False, error="approval request is no longer pending")
+            return SendResult(success=False, error="approval request id is missing")
         result = await super()._send_interactive_card(
             chat_id, card, metadata, failure_message,
             state_map=state_map, state_id=state_id, session_key=session_key,
