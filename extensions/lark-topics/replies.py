@@ -8,12 +8,16 @@ the last tool line as if it were the result.
 from __future__ import annotations
 
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import asyncio
 
 
 CANCELLED_TEXT = "这次已经停了。要继续，请再发一次。"
 FAILURE_TEXT = "这次没做完。请再试一次。"
 UNREADABLE_ATTACHMENT = "有附件没能读出来。请重新发一次，或改用文字说明。"
+# Lark allows 20 edits per text/post message; reserve two for delivery and repair.
+MAX_PROGRESS_EDITS = 18
+TRANSPORT_TIMEOUT = 30
 
 _turn: ContextVar["TurnReply | None"] = ContextVar("lark_topic_reply", default=None)
 
@@ -24,6 +28,32 @@ class TurnReply:
     message_id: str | None = None
     delivered: bool = False
     closed: bool = False
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    progress_edits: int = 0
+    visible_text: str | None = None
+    final_preview: str | None = None
+    final_chunks: list[str] = field(default_factory=list)
+    next_final_chunk: int = 0
+
+
+async def settle_on_cancel(operation):
+    """Keep the transport receipt before propagating cancellation to its caller."""
+    task = asyncio.create_task(asyncio.wait_for(operation, timeout=TRANSPORT_TIMEOUT))
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        try:
+            await asyncio.shield(task)
+        except BaseException:
+            # A receipt is uncertain; never open another reply for this turn.
+            current().closed = True
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        finally:
+            raise
+    except asyncio.TimeoutError:
+        current().closed = True
+        raise
 
 
 def begin(event_id: str) -> None:
@@ -45,6 +75,8 @@ def decide_send(metadata: dict | None) -> str:
         return "pass"
     final = bool((metadata or {}).get("notify"))
     if turn.closed or turn.delivered:
+        return "ignore"
+    if turn.final_chunks and not final:
         return "ignore"
     if final or turn.message_id:
         return "edit" if turn.message_id else "pass"

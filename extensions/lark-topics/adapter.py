@@ -148,18 +148,44 @@ class LarkTopicAdapter(FeishuAdapter):
     async def on_processing_complete(self, event: Any, outcome: Any) -> None:
         message_id = getattr(event, "message_id", "") or ""
         outcome_name = str(getattr(outcome, "value", outcome) or "")
-        text = replies.closing_text(message_id, outcome_name)
         turn = replies.current()
-        if text and turn and turn.message_id:
-            chat_id = getattr(getattr(event, "source", None), "chat_id", "") or ""
-            await super().edit_message(chat_id, turn.message_id, text, finalize=True)
+        if turn is not None:
+            async with turn.lock:
+                if outcome_name == "success" and not turn.delivered and turn.final_preview and turn.message_id:
+                    chat_id = getattr(getattr(event, "source", None), "chat_id", "") or ""
+                    result = await self._reuse_reply(
+                        chat_id, turn.message_id, turn.final_preview, message_id,
+                        {"thread_id": getattr(event.source, "thread_id", None), "notify": True}, final=True,
+                    )
+                    if not result.success:
+                        logger.warning("[LarkTopics] final preview delivery failed: %s", result.error)
+                text = replies.closing_text(message_id, outcome_name)
+                if text and turn.message_id:
+                    chat_id = getattr(getattr(event, "source", None), "chat_id", "") or ""
+                    result = await super().edit_message(chat_id, turn.message_id, text, finalize=True)
+                    if not result.success:
+                        logger.warning("[LarkTopics] reply cleanup failed: %s", result.error)
         await super().on_processing_complete(event, outcome)
 
     async def send(
         self, chat_id: str, content: str, reply_to: Optional[str] = None, metadata: Optional[dict[str, Any]] = None,
     ) -> SendResult:
+        turn = replies.current()
+        if turn is None:
+            return await super().send(chat_id, content, reply_to=reply_to, metadata=metadata)
+        return await replies.settle_on_cancel(self._send_locked(chat_id, content, reply_to, metadata))
+
+    async def _send_locked(self, chat_id, content, reply_to, metadata) -> SendResult:
+        turn = replies.current()
+        async with turn.lock:
+            return await self._send_turn_reply(chat_id, content, reply_to, metadata)
+
+    async def _send_turn_reply(self, chat_id, content, reply_to, metadata) -> SendResult:
         decision = replies.decide_send(metadata)
         final = bool((metadata or {}).get("notify"))
+        if decision == "create" and not final:
+            limit = int(getattr(self, "MAX_MESSAGE_LENGTH", 0) or 0)
+            content = replies.clip_progress(self.format_message(content or ""), limit)
         if decision == "ignore":
             turn = replies.current()
             return SendResult(success=True, message_id=turn.message_id if turn else None)
@@ -171,6 +197,7 @@ class LarkTopicAdapter(FeishuAdapter):
         result = await super().send(chat_id, content, reply_to=reply_to, metadata=metadata)
         if getattr(result, "success", False) and getattr(result, "message_id", None):
             replies.note_created(str(result.message_id))
+            replies.current().visible_text = content
             if final:
                 replies.note_delivered()
         return result
@@ -178,9 +205,34 @@ class LarkTopicAdapter(FeishuAdapter):
     async def edit_message(
         self, chat_id: str, message_id: str, content: str, *, finalize: bool = False, metadata: Optional[dict[str, Any]] = None,
     ) -> SendResult:
-        if replies.decide_edit(message_id) == "ignore":
+        turn = replies.current()
+        if turn is None or turn.message_id != message_id:
+            return await super().edit_message(chat_id, message_id, content, finalize=finalize)
+        return await replies.settle_on_cancel(self._edit_locked(chat_id, message_id, content, finalize))
+
+    async def _edit_locked(self, chat_id, message_id, content, finalize) -> SendResult:
+        turn = replies.current()
+        async with turn.lock:
+            if replies.decide_edit(message_id) == "ignore":
+                return SendResult(success=True, message_id=message_id)
+            # A segment boundary also carries finalize=True; only the lifecycle
+            # hook knows that the whole turn has finished.
+            if finalize:
+                turn.final_preview = content
+            return await self._edit_progress(chat_id, message_id, content)
+
+    async def _edit_progress(self, chat_id, message_id, content) -> SendResult:
+        turn = replies.current()
+        limit = int(getattr(self, "MAX_MESSAGE_LENGTH", 0) or 0)
+        content = replies.clip_progress(self.format_message(content or ""), limit)
+        if content == turn.visible_text or turn.progress_edits >= replies.MAX_PROGRESS_EDITS:
             return SendResult(success=True, message_id=message_id)
-        return await super().edit_message(chat_id, message_id, content, finalize=finalize)
+        # Count attempts too: a lost acknowledgement may still consume an edit.
+        turn.progress_edits += 1
+        result = await super().edit_message(chat_id, message_id, content)
+        if result.success:
+            turn.visible_text = content
+        return result
 
     async def _reuse_reply(
         self, chat_id: str, message_id: str, content: str, reply_to: Optional[str],
@@ -189,18 +241,25 @@ class LarkTopicAdapter(FeishuAdapter):
         formatted = self.format_message(content or "")
         limit = int(getattr(self, "MAX_MESSAGE_LENGTH", 0) or 0)
         if not final:
-            result = await super().edit_message(chat_id, message_id, replies.clip_progress(formatted, limit))
-            return result
+            return await self._edit_progress(chat_id, message_id, formatted)
+        turn = replies.current()
         chunks = replies.split_final(formatted, limit)
         if not chunks:
             return SendResult(success=False, error="Empty final reply")
-        result = await super().edit_message(chat_id, message_id, chunks[0], finalize=True)
-        if not getattr(result, "success", False):
-            return result
-        for chunk in chunks[1:]:
+        if turn.final_chunks and turn.final_chunks != chunks:
+            return SendResult(success=False, error="Final reply changed during partial delivery")
+        turn.final_chunks = chunks
+        result = SendResult(success=True, message_id=message_id)
+        if turn.next_final_chunk == 0:
+            result = await super().edit_message(chat_id, message_id, chunks[0], finalize=True)
+            if not getattr(result, "success", False):
+                return result
+            turn.next_final_chunk = 1
+        for chunk in chunks[turn.next_final_chunk:]:
             extra = await super().send(chat_id, chunk, reply_to=reply_to, metadata=metadata)
             if not getattr(extra, "success", False):
                 return extra
+            turn.next_final_chunk += 1
         replies.note_delivered()
         if not getattr(result, "message_id", None):
             result.message_id = message_id
