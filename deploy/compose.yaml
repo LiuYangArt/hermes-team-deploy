@@ -10,6 +10,7 @@ services:
         org.opencontainers.image.revision: ${HERMES_CORE_REVISION:?Set HERMES_CORE_REVISION}
     image: hermes-team-official:${HERMES_CORE_REVISION:?Set HERMES_CORE_REVISION}
     container_name: hermes-team-new
+    hostname: hermes-team-official
     restart: unless-stopped
     env_file:
       - ${HERMES_TEAM_STATE_DIR:?Set HERMES_TEAM_STATE_DIR}/bot.env
