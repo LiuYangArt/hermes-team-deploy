@@ -12,6 +12,12 @@
 - Codex 项目级 Stop hook 位于工作区 `.codex/hooks.json`，实现脚本为 `scripts/codex/task_docs_hook.py`。它按会话保存起始快照：公共改动要求同步 `docs/PLAN.md` 及对应说明，单任务改动要求同步所属 `jobs/<job>/` 文档和含复选项的任务清单；只读回合无需制造改动。变更 hook 后在 Codex 中运行 `/hooks` 重新审查并信任。
 - 不发送真实 Lark 消息或写业务数据，除非对应测试范围已获授权。
 
+## 本机服务器运维入口
+
+- 登录和配置已有云服务器时，先回到统一工作区，读取其 `AGENTS.md` 并调用本地 `hermes-server-config` 技能。
+- 连接资料与云端、本机 Lark 机器人对应关系只保存在统一工作区的本地说明中。
+- 本地运维技能不属于本仓库，不得复制进仓库、镜像、服务器或上传包。不要递归上传统一工作区。
+
 ## Codex 新 Session 归属
 
 - 本项目的新 Session 必须创建在 Codex 的 **hermes-team** 项目中，并使用统一工作目录 `/Users/apple/CodeProjects/hermes-team-workspace`；不要创建到公共区域、Projectless、`apple` 或旧 `docker-hermes-team` 项目。
