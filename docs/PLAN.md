@@ -192,3 +192,5 @@
 - [x] #11 补记独立 x86_64、非 root 网关、重启策略和真实收发证据；执行隔离仍未验收，保持待验证。
 - [ ] #10 更新安装说明已推送、云端已有运行实例的事实；健康检查受历史错误影响，原先全通过的表述需修正，保持待验证。
 - [ ] #13 已有云端重启恢复证据，进入待验证；多人、断网、失败、图片和长答案仍待验证。#6、#7、#8、#9、#23、#25 保留原有未完成项。
+
+6. 2026-10-03：Deploy #27 已将 `rules/skills/plain-language-writing/` 安装到云端 ASTRA 与本机 Docker hermi 的 `data/skills/`。技能只约束需要交付或留档的文档、Issue、Lark Task、Meegle 正文；日常聊天继续使用各自 SOUL。两端 `skills list`、`skill_view` 和模型草稿验证通过，未修改 Core、SOUL 或源技能；证据见 `artifacts/issue-27/`。
