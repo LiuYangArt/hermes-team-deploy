@@ -194,3 +194,5 @@
 - [ ] #13 已有云端重启恢复证据，进入待验证；多人、断网、失败、图片和长答案仍待验证。#6、#7、#8、#9、#23、#25 保留原有未完成项。
 
 6. 2026-10-03：Deploy #27 已将 `rules/skills/plain-language-writing/` 安装到云端 ASTRA 与本机 Docker hermi 的 `data/skills/`。技能只约束需要交付或留档的文档、Issue、Lark Task、Meegle 正文；日常聊天继续使用各自 SOUL。两端 `skills list`、`skill_view` 和模型草稿验证通过，未修改 Core、SOUL 或源技能；证据见 `artifacts/issue-27/`。
+
+7. 2026-10-03：Deploy #28 将 Lark Lingo 原生技能安装到云端 ASTRA 与本机 Docker hermi 的 `data/skills/`。技能默认使用受管机器人身份、先查 repo/classification/已有词条再生成可审核草稿；不因安装技能获得用户授权或直接写入词典。证据见 `artifacts/issue-lingo/`。
