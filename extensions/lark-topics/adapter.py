@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import json
+import threading
 from typing import Any, Optional
 
 from gateway.platforms.base import SendResult
@@ -58,6 +59,105 @@ class LarkTopicAdapter(FeishuAdapter):
         self._inbound_routes: dict[str, InboundDecision] = {}
         self._context_prefixes: dict[str, str] = {}
         self._speaker_claims: dict[str, str] = {}
+        self._approval_action_lock = threading.Lock()
+        self._settled_approval_cards: dict[tuple[Any, str], dict[str, Any]] = {}
+
+    def _pending_approval_request(self, session_key: str, request_id: str) -> Optional[dict[str, Any]]:
+        if not session_key or not request_id:
+            return None
+        from tools.approval import list_gateway_approvals
+        matches = [
+            request for request in list_gateway_approvals(session_key)
+            if request.get("request_id") == request_id
+        ]
+        return matches[0] if len(matches) == 1 else None
+
+    async def _send_interactive_card(
+        self, chat_id: str, card: dict[str, Any], metadata: Optional[dict[str, Any]], failure_message: str, *,
+        state_map: dict[int, dict[str, str]], state_id: int, session_key: str,
+    ) -> SendResult:
+        is_approval = state_map is self._approval_state
+        request_id = str((metadata or {}).get("exec_approval_request_id", "") or "")
+        if is_approval and self._pending_approval_request(session_key, request_id) is None:
+            logger.warning("[LarkTopics] refusing an approval card without one pending request id")
+            return SendResult(success=False, error="approval request is no longer pending")
+        result = await super()._send_interactive_card(
+            chat_id, card, metadata, failure_message,
+            state_map=state_map, state_id=state_id, session_key=session_key,
+        )
+        if is_approval and result.success:
+            thread_id = str((metadata or {}).get("thread_id", "") or "")
+            state = state_map.get(state_id)
+            if state is not None:
+                state.update({
+                    "request_id": request_id,
+                    "thread_id": thread_id,
+                })
+        return result
+
+    @staticmethod
+    def _expired_approval_card() -> dict[str, Any]:
+        from agent.i18n import t
+        message = t("platform.shared.approval_expired")
+        return {
+            "config": {"wide_screen_mode": True},
+            "header": {
+                "title": {"content": message, "tag": "plain_text"},
+                "template": "grey",
+            },
+            "elements": [{"tag": "markdown", "content": message}],
+        }
+
+    def _handle_approval_card_action(self, *, event: Any, action_value: dict[str, Any], loop: Any) -> Any:
+        approval_id = action_value.get("approval_id")
+        choices = {
+            "approve_once": "once", "approve_session": "session",
+            "approve_always": "always", "deny": "deny",
+        }
+        choice = choices.get(action_value.get("hermes_action"))
+        if approval_id is None or choice is None:
+            return self._card_response(self._expired_approval_card())
+        lock = getattr(self, "_approval_action_lock", None)
+        if lock is None:
+            lock = self._approval_action_lock = threading.Lock()
+        with lock:
+            callback_message_id = str(getattr(getattr(event, "context", None), "open_message_id", "") or "")
+            settled = getattr(self, "_settled_approval_cards", {})
+            if (approval_id, callback_message_id) in settled:
+                return self._card_response(settled[(approval_id, callback_message_id)])
+            state = self._approval_state.get(approval_id)
+            if not state:
+                return self._card_response(self._expired_approval_card())
+            expected_message_id = str(state.get("message_id", "") or "")
+            if not expected_message_id or callback_message_id != expected_message_id:
+                return self._card_response(self._expired_approval_card())
+            checked = self._validate_card_action(
+                event=event, state=state, label="approval", ident=approval_id,
+            )
+            if checked is None:
+                return self._card_response()
+            open_id, _chat_id, user_name = checked
+            request_id = state.get("request_id", "")
+            if not request_id:
+                self._approval_state.pop(approval_id, None)
+                return self._card_response(self._expired_approval_card())
+            from tools.approval import resolve_gateway_approval
+            count = resolve_gateway_approval(
+                state.get("session_key", ""), choice, request_id=request_id,
+            )
+            self._approval_state.pop(approval_id, None)
+            if count != 1:
+                return self._card_response(self._expired_approval_card())
+            resolved_card = self._build_resolved_approval_card(choice=choice, user_name=user_name)
+            if len(settled) >= 256:
+                settled.pop(next(iter(settled)))
+            settled[(approval_id, callback_message_id)] = resolved_card
+            self._settled_approval_cards = settled
+            logger.info(
+                "Lark approval resolved request %s (choice=%s, user=%s)",
+                request_id, choice, open_id,
+            )
+            return self._card_response(resolved_card)
 
     def _admit(self, sender: Any, message: Any):
         reason = super()._admit(sender, message)

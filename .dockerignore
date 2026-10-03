@@ -1,6 +1,8 @@
 *
 !deploy
 !deploy/Dockerfile
+!deploy/core-patches
+!deploy/core-patches/exec-approval-request-id.patch
 !deploy/official-tools.json
 !deploy/install_official_tools.sh
 !deploy/enable_team_plugins.py

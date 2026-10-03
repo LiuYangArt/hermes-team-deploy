@@ -1,6 +1,10 @@
 ARG HERMES_CORE_IMAGE
 FROM ${HERMES_CORE_IMAGE}
 USER root
+COPY deploy/core-patches/exec-approval-request-id.patch /tmp/exec-approval-request-id.patch
+RUN git -C /opt/hermes apply --check /tmp/exec-approval-request-id.patch && \
+    git -C /opt/hermes apply /tmp/exec-approval-request-id.patch && \
+    rm /tmp/exec-approval-request-id.patch
 # Bake the platform extra into the image so startup never installs into shared state.
 RUN rm -rf /opt/hermes/.venv && \
     python3 -m pm.build_env --source /opt/hermes --python /usr/local/bin/python3 \

@@ -197,6 +197,8 @@
 
 7. 2026-10-03：Deploy #28 将 Lark Lingo 原生技能安装到云端 ASTRA 与本机 Docker hermi 的 `data/skills/`。技能默认使用受管机器人身份、先查 repo/classification/已有词条再生成可审核草稿；不因安装技能获得用户授权或直接写入词典。证据见 `artifacts/issue-lingo/`。
 
+8. 2026-10-03：#29 修复批准卡片的请求绑定和过期反馈路由。Core 只传递内部 request_id；Deploy 话题扩展按 request_id 精确结算、校验原卡并在旧卡失效时回显原卡中的过期提示。构建时应用已登记的最小通用补丁，继续使用固定官方基线。云端重建和真实 mybots 回读待完成，证据见 `artifacts/issue-29/`。
+
 ## 2026-10-03 Issue #23 个人授权入口修复
 
 - [x] 复用 #23 记录普通成员个人授权入口；#8 补记多个技能进度消息残留，本轮不处理。
