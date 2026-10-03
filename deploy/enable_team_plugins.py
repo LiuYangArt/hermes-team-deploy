@@ -114,19 +114,24 @@ def _join(lines: list[str]) -> str:
 
 
 def ensure_feishu_cron_toolset(text: str) -> str:
-    """Add cron management when Feishu already has an explicit tool list.
+    return ensure_feishu_toolset(text, "cronjob")
 
-    A missing platform list keeps the official default, which already includes it.
-    Writing a new list here would replace that default with only the cron tool.
-    """
+
+def ensure_feishu_toolset(text: str, toolset: str) -> str:
+    """Preserve the existing tools, adding the personal tool beside official defaults."""
     lines = text.splitlines()
     at = _top_level_key(lines, "platform_toolsets:")
     if at is None:
+        if toolset == "personal_auth":
+            return _join([*lines, "platform_toolsets:", "  feishu: [hermes-feishu, personal_auth]"])
         return text
     end = _section_end(lines, at)
     section = lines[at + 1:end]
     feishu_rel = _child_key(section, "feishu:")
     if feishu_rel is None:
+        if toolset == "personal_auth":
+            lines.insert(at + 1, "  feishu: [hermes-feishu, personal_auth]")
+            return _join(lines)
         return text
     line = section[feishu_rel]
     comment = ""
@@ -136,17 +141,17 @@ def ensure_feishu_cron_toolset(text: str) -> str:
     inline = raw_value[0].split(":", 1)[1].strip()
     if inline:
         present = _flow_names(inline)
-        if present is None or "cronjob" in present:
+        if present is None or toolset in present:
             return text
-        merged = ", ".join([*present, "cronjob"])
+        merged = ", ".join([*present, toolset])
         indent = " " * _indent(line)
         lines[at + 1 + feishu_rel] = f"{indent}feishu: [{merged}]{comment}"
         return _join(lines)
     present, items_end = _block_items(section, feishu_rel)
-    if "cronjob" in present:
+    if toolset in present:
         return text
     indent = _indent(line) + 2
-    lines[at + 1 + items_end:at + 1 + items_end] = [" " * indent + "- cronjob"]
+    lines[at + 1 + items_end:at + 1 + items_end] = [" " * indent + "- " + toolset]
     return _join(lines)
 
 
@@ -156,7 +161,8 @@ def main(argv: list[str]) -> int:
         return 2
     path = Path(argv[1])
     text = path.read_text(encoding="utf-8") if path.is_file() else ""
-    path.write_text(ensure_feishu_cron_toolset(ensure_team_plugins(text)), encoding="utf-8")
+    updated = ensure_feishu_cron_toolset(ensure_team_plugins(text))
+    path.write_text(ensure_feishu_toolset(updated, "personal_auth"), encoding="utf-8")
     return 0
 
 

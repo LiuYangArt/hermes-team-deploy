@@ -25,6 +25,7 @@ policy = _load(POLICY_PATH, "personal_auth_policy")
 def _grant_lark(root: Path, speaker: str) -> None:
     path = policy.lark_config_dir(root, speaker) / "hermes" / "config.json"
     path.parent.mkdir(parents=True)
+    (path.parent.parent / "verified.json").write_text(json.dumps({"speaker": speaker}))
     path.write_text(json.dumps({
         "apps": [{"users": [{"userOpenId": speaker}]}],
     }), encoding="utf-8")
@@ -34,6 +35,7 @@ def _grant_meegle(root: Path, speaker: str) -> None:
     path = policy.meegle_home(root, speaker) / ".meegle" / "credentials.enc"
     path.parent.mkdir(parents=True)
     path.write_bytes(b"not-a-real-token")
+    (path.parent.parent / "verified.json").write_text(json.dumps({"speaker": speaker}))
 
 
 class IsolationTest(unittest.TestCase):
@@ -90,27 +92,35 @@ class IsolationTest(unittest.TestCase):
         self.assertIn("看不出是谁", decision["message"])
 
     def test_task_changes_stay_on_the_bot_identity(self):
-        self.assertIsNone(self._tool("lark-cli task +create --summary demo"))
-        self.assertIsNone(self._tool("lark-cli task +comment --task-id t1 --content note"))
-        mixed = self._tool("meegle workitem list && lark-cli task +complete --task-id t1")
-        command = mixed["args"]["command"]
-        self.assertIn(policy.meegle_home(self.root, "ou_a").as_posix(), command)
-        self.assertIn(policy.bot_lark_dir(self.root).as_posix(), command)
-        self.assertNotIn(policy.lark_config_dir(self.root, "ou_a").as_posix(), command)
-        together = self._tool("lark-cli task +get-my-tasks && lark-cli task +create --summary demo")
-        self.assertEqual(together["action"], "block")
+        decision = self._tool("lark-cli task +create --summary demo")
+        self.assertIn(policy.bot_lark_dir(self.root).as_posix(), decision["args"]["command"])
+        for command in (
+            "meegle workitem list && lark-cli task +complete --task-id t1",
+            "lark-cli task +get-my-tasks && lark-cli task +create --summary demo",
+        ):
+            self.assertEqual(self._tool(command)["action"], "block")
 
     def test_own_tasks_cannot_be_forced_onto_the_bot(self):
         decision = self._tool("lark-cli task +get-my-tasks --as bot")
         self.assertEqual(decision["action"], "block")
         self.assertIn("机器人身份", decision["message"])
 
-    def test_meegle_login_stays_in_the_speakers_directory(self):
-        decision = self._tool("meegle auth login", user="ou_b")
-        command = decision["args"]["command"]
-        self.assertIn(policy.meegle_home(self.root, "ou_b").as_posix(), command)
-        self.assertNotIn("ou_a", command)
-        self.assertIn(policy.meegle_home(self.root, "ou_b").as_posix(), decision["ensure_dirs"][0])
+    def test_login_requires_the_bound_authorization_tool(self):
+        for command in ("meegle auth login", "lark-cli auth login --no-wait", "lark-cli auth logout"):
+            result = self._tool(command, user="ou_b")
+            self.assertEqual(result["action"], "block")
+            self.assertIn("personal_auth", result["message"])
+
+    def test_lark_tokens_have_their_own_data_directory(self):
+        result = self._tool("lark-cli task +get-my-tasks")
+        self.assertIn(str(policy.lark_config_dir(self.root, "ou_a") / ".data"), result["args"]["command"])
+
+    def test_unverified_and_wrong_account_are_rejected(self):
+        grant = policy.lark_config_dir(self.root, "ou_a")
+        (grant / "hermes" / "config.json").write_text(json.dumps({"apps": [{"users": [{"userOpenId": "ou_b"}]}]}))
+        self.assertFalse(policy.has_lark_grant(self.root, "ou_a"))
+        (policy.meegle_home(self.root, "ou_a") / "verified.json").unlink()
+        self.assertFalse(policy.has_meegle_grant(self.root, "ou_a"))
 
     def test_bot_only_lark_config_is_not_a_personal_grant(self):
         path = policy.lark_config_dir(self.root, "ou_b") / "hermes" / "config.json"

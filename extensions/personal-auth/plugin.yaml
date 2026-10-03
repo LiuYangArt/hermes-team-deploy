@@ -1,4 +1,6 @@
 name: personal-auth
-version: "0.1.0"
-description: "看自己的 Lark 任务和 Meegle 只用说话这个人的授权，没有授权就直接拒绝。"
+version: "0.2.0"
+description: "普通成员自行授权，核对身份后按人使用 Lark 与 Meegle。"
+provides_tools:
+  - personal_auth
 author: hermes-team

@@ -13,8 +13,8 @@ import shlex
 from pathlib import Path
 
 REFUSAL_UNKNOWN = "看不出是谁在说话，所以不能查任务，也不能操作 Meegle。"
-REFUSAL_LARK = "还没有你自己的任务授权，所以查不了你的任务。不会改用别人的登录。"
-REFUSAL_MEEGLE = "还没有你自己的 Meegle 授权，所以做不了。不会改用别人的登录。"
+REFUSAL_LARK = "还没有你自己的任务授权。请用 personal_auth(service=lark, action=start) 给本人发起授权；不会改用别人的登录。"
+REFUSAL_MEEGLE = "还没有你自己的 Meegle 授权。请用 personal_auth(service=meegle, action=start)；不会改用别人的登录。"
 REFUSAL_FOREIGN = "不能读取、指定或改用别人的授权。"
 REFUSAL_MIXED = "查自己的任务和修改任务要分开做。修改任务仍然用机器人身份。"
 REFUSAL_BOT_READ = "查自己的任务不能改成机器人身份。"
@@ -22,14 +22,16 @@ REFUSAL_SCRIPT = "查自己的任务和 Meegle 要直接运行对应命令，这
 
 TURN_NOTE = (
     "查这个人自己的 Lark 任务，以及 Meegle 的查看、待办、创建和修改，只能用这个人自己的授权。"
-    "没有授权就直接说明做不到，不要改用别人的登录，也不要在对话里扫码或改机器人身份。"
-    "新建、修改、完成、重新打开、分配负责人和加备注仍然用机器人身份。"
+    "普通成员可用 personal_auth 工具为本人扫码授权、查看状态或退出，不需要管理员。"
+    "缺少授权时调用 start，展示原样链接、二维码和有效期；本轮先结束。本人说已授权后调用 complete，再继续原请求。"
+    "设备码由工具保管，不运行 CLI auth login/logout，不手动读写授权目录。Meegle 首次授权先完成 Lark 身份核对。"
+    "Lark 任务的新建、修改、完成、重新打开、分配负责人和加备注仍然用机器人身份。"
 )
 
 _ID = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,79}$")
 _SENSITIVE = re.compile(
     r"personal-auth|\.meegle|credentials\.enc|MEEGLE_USER_ACCESS_TOKEN|"
-    r"LARKSUITE_CLI_USER_ACCESS_TOKEN|LARKSUITE_CLI_APP_SECRET|LARKSUITE_CLI_CONFIG_DIR",
+    r"LARKSUITE_CLI_|MEEGLE_|\.lark-cli|\.local/share/lark-cli",
     re.IGNORECASE,
 )
 _HOME_ASSIGN = re.compile(r"(?:^|[\s;&|`(])HOME\s*=", re.IGNORECASE)
@@ -37,7 +39,6 @@ _OWN_TASK = re.compile(r"\+(?:get-my-tasks|get-related-tasks)\b")
 _BOT_TASK = re.compile(r"\+(?:create|update|complete|reopen|assign|comment)\b")
 _MEEGLE = re.compile(r"(?:^|[^A-Za-z0-9_-])meegle(?:$|[^A-Za-z0-9_-])", re.IGNORECASE)
 _AS_BOT = re.compile(r"--as(?:\s+|=)bot\b")
-_AUTH_LOGIN = re.compile(r"\bauth\s+login\b")
 
 
 def safe_id(value: str) -> bool:
@@ -120,10 +121,20 @@ def bot_lark_dir(root: Path) -> Path:
 
 
 def has_meegle_grant(root: Path, speaker: str) -> bool:
-    return (meegle_home(root, speaker) / ".meegle" / "credentials.enc").is_file()
+    folder = meegle_home(root, speaker)
+    return _verified(folder, speaker) and (folder / ".meegle" / "credentials.enc").is_file()
+
+
+def _verified(folder: Path, speaker: str) -> bool:
+    try:
+        return json.loads((folder / "verified.json").read_text(encoding="utf-8")).get("speaker") == speaker
+    except (OSError, ValueError, AttributeError):
+        return False
 
 
 def has_lark_grant(root: Path, speaker: str) -> bool:
+    if not _verified(lark_config_dir(root, speaker), speaker):
+        return False
     file = lark_config_dir(root, speaker) / "hermes" / "config.json"
     if not file.is_file():
         return False
@@ -139,7 +150,7 @@ def has_lark_grant(root: Path, speaker: str) -> bool:
         if not isinstance(users, list):
             continue
         for user in users:
-            if isinstance(user, dict) and str(user.get("userOpenId") or "").strip():
+            if isinstance(user, dict) and user.get("userOpenId") == speaker:
                 return True
     return False
 
@@ -179,7 +190,7 @@ def tool_decision(
         code = str(args.get("code") or "")
         if _sensitive_text(code):
             return _block(REFUSAL_FOREIGN)
-        if _owns_tasks(code) or _uses_meegle(code):
+        if "lark-cli" in code or _uses_meegle(code):
             return _block(REFUSAL_SCRIPT)
         return None
     if name != "terminal":
@@ -191,9 +202,27 @@ def tool_decision(
         return _block(REFUSAL_FOREIGN)
     own = _owns_tasks(command)
     meegle = _uses_meegle(command)
+    lark = "lark-cli" in command
     bot_task = bool(_BOT_TASK.search(command))
-    if not own and not meegle:
+    if not lark and not meegle:
         return None
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>()")
+        lexer.whitespace_split = True
+        words = list(lexer)
+    except ValueError:
+        return _block(REFUSAL_SCRIPT)
+    # Only one direct CLI invocation can receive a member's credentials.
+    if not words or words[0] not in {"lark-cli", "meegle", "/usr/local/bin/lark-cli", "/usr/local/bin/meegle"} or any(word and all(c in ";&|<>()" for c in word) for word in words):
+        return _block(REFUSAL_SCRIPT)
+    lark = Path(words[0]).name == "lark-cli"
+    meegle = not lark
+    if "auth" in words and words[1:3] != ["auth", "qrcode"]:
+        return _block("管理自己的授权请使用 personal_auth 工具，普通成员也可使用。")
+    if meegle and any(word in {"config", "profile"} for word in words[1:3]):
+        return _block("个人 Meegle 配置由授权工具管理，不能在普通命令中修改。")
+    if any(word == "--profile" or word.startswith("--profile=") for word in words):
+        return _block(REFUSAL_FOREIGN)
     if own and bot_task:
         return _block(REFUSAL_MIXED)
     if own and _AS_BOT.search(command):
@@ -206,10 +235,11 @@ def tool_decision(
     env: dict[str, str] = {}
     ensure: list[str] = []
     if meegle:
-        if not has_meegle_grant(root, speaker) and _meegle_needs_grant(command):
+        if not has_meegle_grant(root, speaker):
             return _block(REFUSAL_MEEGLE)
         home = meegle_home(root, speaker)
         env["HOME"] = home.as_posix()
+        env["USER"] = "hermes"
         ensure.append(home.as_posix())
         if bot_task:
             env["LARKSUITE_CLI_CONFIG_DIR"] = bot_lark_dir(root).as_posix()
@@ -217,11 +247,15 @@ def tool_decision(
         if not has_lark_grant(root, speaker):
             return _block(REFUSAL_LARK)
         env["LARKSUITE_CLI_CONFIG_DIR"] = lark_config_dir(root, speaker).as_posix()
+        env["LARKSUITE_CLI_DATA_DIR"] = (lark_config_dir(root, speaker) / ".data").as_posix()
+    elif lark:
+        env["LARKSUITE_CLI_CONFIG_DIR"] = bot_lark_dir(root).as_posix()
+        env["LARKSUITE_CLI_DATA_DIR"] = (root / ".local" / "share").as_posix()
     if not env:
         return None
     return {
         "action": "modify",
-        "args": {"command": _wrap(command, env)},
+        "args": {"command": _wrap(shlex.join(words), env)},
         "ensure_dirs": ensure,
     }
 
@@ -236,18 +270,6 @@ def _owns_tasks(command: str) -> bool:
 
 def _uses_meegle(command: str) -> bool:
     return bool(_MEEGLE.search(command))
-
-
-def _meegle_needs_grant(command: str) -> bool:
-    if _AUTH_LOGIN.search(command):
-        return False
-    remaining = re.sub(
-        r"(?:^|[^A-Za-z0-9_-])meegle\s+auth\s+(?:status|logout)\b",
-        " ",
-        command,
-        flags=re.IGNORECASE,
-    )
-    return bool(_MEEGLE.search(remaining))
 
 
 def _wrap(command: str, env: dict[str, str]) -> str:

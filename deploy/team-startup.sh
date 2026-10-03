@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/command/with-contenv sh
 # Copy the image's Lark/Meegle tools and team extensions into this home.
 # Personal grants stay in the home and are not replaced.
 set -eu

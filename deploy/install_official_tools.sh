@@ -55,6 +55,9 @@ case "$mode" in
     ;;
   --activate)
     home=${HERMES_HOME:?Set HERMES_HOME}
+    # Startup and chat shells have different homes; app binding must use one store.
+    export LARKSUITE_CLI_CONFIG_DIR="$home/.lark-cli"
+    export LARKSUITE_CLI_DATA_DIR="$home/.local/share"
     if [ -d /opt/hermes/official-skills/lark-shared ]; then
       mkdir -p "$home/skills"
       for name in $LARK_SKILLS $MEEGLE_SKILLS; do
@@ -79,8 +82,8 @@ for line in text.splitlines():
         continue
     key, value = line.split("=", 1)
     existing[key] = value
-for key in ("FEISHU_APP_ID", "FEISHU_APP_SECRET"):
-    value = os.environ.get(key, "")
+for key in ("FEISHU_APP_ID", "FEISHU_APP_SECRET", "FEISHU_DOMAIN"):
+    value = os.environ.get(key, "feishu" if key == "FEISHU_DOMAIN" else "")
     if not value or any(char in value for char in "\n\r"):
         raise SystemExit(f"{key} is missing or unsafe to store")
     if existing.get(key) == value:
@@ -120,6 +123,9 @@ PY
         rm -rf "$home/home/.lark-cli"
       fi
       ln -sfn "$home/.lark-cli" "$home/home/.lark-cli"
+      if [ "$(id -u)" = 0 ]; then
+        chown -R hermes:hermes "$home/.lark-cli" "$home/.local/share/lark-cli"
+      fi
     fi
     ;;
   *)

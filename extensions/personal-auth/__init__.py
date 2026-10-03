@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
+import json
 from pathlib import Path
 
 from .policy import (
     TURN_NOTE,
+    canonical,
     load_links,
     observe,
     retire_shared_meegle,
@@ -18,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 
 def register(ctx) -> None:
+    from .authorization import SCHEMA
+    ctx.register_tool(name="personal_auth", toolset="personal_auth", schema=SCHEMA, handler=_authorize)
     try:
         outcome = retire_shared_meegle(_home())
         if outcome == "moved":
@@ -27,6 +31,16 @@ def register(ctx) -> None:
     ctx.register_hook("pre_gateway_dispatch", _on_inbound)
     ctx.register_hook("pre_tool_call", _on_tool)
     ctx.register_hook("pre_llm_call", _on_turn)
+
+
+def _authorize(args):
+    from .authorization import Authorization
+    platform, user_id, alt_id = _session_identity()
+    if platform != "feishu":
+        return json.dumps({"ok": False, "error": "lark_request_required"})
+    speaker = canonical((user_id, alt_id), load_links(_links_path()))
+    result = Authorization(_home()).handle(speaker, args.get("service"), args.get("action"), args.get("host", "meegle.com"))
+    return json.dumps(result, ensure_ascii=False)
 
 
 def _on_inbound(event=None, **_kwargs):
@@ -45,6 +59,8 @@ def _on_inbound(event=None, **_kwargs):
 
 def _on_tool(tool_name="", args=None, **_kwargs):
     _platform_name, user_id, alt_id = _session_identity()
+    if _platform_name != "feishu":
+        return None
     decision = tool_decision(
         user_ids=(user_id, alt_id),
         tool_name=str(tool_name or ""),

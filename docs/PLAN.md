@@ -96,7 +96,7 @@
 - [ ] 同话题后来的请求排队，不打断正在做的事。只有这件事的发起人能停止、批准和回答确认。
 - [ ] 进度与最终回答复用消息，覆盖迟到更新、取消、失败、长答案及附件。
 - [ ] 引用消息内容与原生话题归属；本轮已验证已有原生话题内 Q1 的精确引用复述及 `thread_id/root_id/parent_id`，主群无 `thread_id` 的引用输入、附件行为仍未覆盖。
-- [ ] 同事进门、三层权限和超过 7 天的文件清理已在测试群验证（`hermes-team-deploy#15`）。Lark 与 Meegle 以技能接入（`hermes-team-deploy#9`）。Lark 只用机器人身份，对话里不能扫码或改成个人身份。看自己的 Lark 任务和 Meegle 已按说话人分开（`#23`，`extensions/personal-auth/`）；两个真人分别回读还要等人各自授权。词典（`#21`）和原图附件（`#22`）以后再做。
+- [ ] 同事进门、三层权限和超过 7 天的文件清理已在测试群验证（`hermes-team-deploy#15`）。Lark 与 Meegle 以技能接入（`hermes-team-deploy#9`）。Lark 公共操作使用机器人身份；个人授权由专门入口按发起人管理，共享机器人身份仍不可在对话中修改。看自己的 Lark 任务和 Meegle 已按说话人分开（`#23`，`extensions/personal-auth/`）；两个真人分别回读还要等人各自授权。词典（`#21`）和原图附件（`#22`）以后再做。
 - [ ] 不机械复用旧 adapter；保留官方新实现，按行为契约移植。
 
 ### 4. Tasks/ACP 与任务资产
@@ -196,3 +196,10 @@
 6. 2026-10-03：Deploy #27 已将 `rules/skills/plain-language-writing/` 安装到云端 ASTRA 与本机 Docker hermi 的 `data/skills/`。技能只约束需要交付或留档的文档、Issue、Lark Task、Meegle 正文；日常聊天继续使用各自 SOUL。两端 `skills list`、`skill_view` 和模型草稿验证通过，未修改 Core、SOUL 或源技能；证据见 `artifacts/issue-27/`。
 
 7. 2026-10-03：Deploy #28 将 Lark Lingo 原生技能安装到云端 ASTRA 与本机 Docker hermi 的 `data/skills/`。技能默认使用受管机器人身份、先查 repo/classification/已有词条再生成可审核草稿；不因安装技能获得用户授权或直接写入词典。证据见 `artifacts/issue-lingo/`。
+
+## 2026-10-03 Issue #23 个人授权入口修复
+
+- [x] 复用 #23 记录普通成员个人授权入口；#8 补记多个技能进度消息残留，本轮不处理。
+- [x] 个人授权扩展增加设备授权入口、独立令牌目录、账号核对、过期与退出处理；Meegle 用已核实 Lark 账号的工作邮箱核对。
+- [x] 云端只读复现 `not_configured`：容器有机器人环境变量，但持久 `.env` 缺少应用字段，CLI 未绑定。启动脚本需通过 s6 的环境入口继承变量，并固定 CLI 配置与令牌目录。
+- [ ] 云端发布后完成 Lark 授权入口和真实群聊回读；本人扫码及两人隔离验收未完成，不关闭 #23。
