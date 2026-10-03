@@ -93,7 +93,6 @@ class LarkApprovalAdapterTest(unittest.IsolatedAsyncioTestCase):
         self.pending = []
         self.resolutions = []
         approval = ModuleType("tools.approval")
-        approval.list_gateway_approvals = lambda session_key: list(self.pending)
 
         def resolve(session_key, choice, request_id=None):
             self.resolutions.append((session_key, choice, request_id))
@@ -106,12 +105,8 @@ class LarkApprovalAdapterTest(unittest.IsolatedAsyncioTestCase):
         approval.resolve_gateway_approval = resolve
         tools = ModuleType("tools")
         tools.approval = approval
-        agent = ModuleType("agent")
-        agent.__path__ = []
-        i18n = ModuleType("agent.i18n")
-        i18n.t = lambda key: "Approval expired"
         self.modules = patch.dict(sys.modules, {
-            "tools": tools, "tools.approval": approval, "agent": agent, "agent.i18n": i18n,
+            "tools": tools, "tools.approval": approval,
         })
         self.modules.start()
         self.addCleanup(self.modules.stop)
