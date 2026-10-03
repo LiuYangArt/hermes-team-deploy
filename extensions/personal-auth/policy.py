@@ -274,7 +274,10 @@ def _uses_meegle(command: str) -> bool:
 
 def _wrap(command: str, env: dict[str, str]) -> str:
     parts = [f"{key}={shlex.quote(value)}" for key, value in env.items()]
-    return "env " + " ".join(parts) + " sh -c " + shlex.quote(command)
+    # The command was already parsed and restricted to one direct CLI call above.
+    # Keep that argv visible to the platform safety checker; wrapping it in
+    # `sh -c` makes a read-only personal query look like arbitrary shell code.
+    return "env " + " ".join(parts) + " " + command
 
 
 def _block(message: str) -> dict:

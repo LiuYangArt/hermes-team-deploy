@@ -65,6 +65,11 @@ class IsolationTest(unittest.TestCase):
         self.assertNotIn("ou_b", command)
         self.assertNotIn("/.lark-cli", command)
         self.assertIn("+get-my-tasks", command)
+        self.assertNotIn("sh -c", command)
+
+    def test_date_context_stays_a_direct_safe_command(self):
+        decision = self._tool("date '+%Y-%m-%d %H:%M:%S %z'")
+        self.assertIsNone(decision)
 
     def test_b_cannot_use_as_task_grant(self):
         decision = self._tool("lark-cli task +get-related-tasks", user="ou_b")
