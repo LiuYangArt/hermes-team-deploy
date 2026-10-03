@@ -41,7 +41,7 @@ def register(ctx) -> None:
         _start_scheduler()
 
 
-def _on_inbound(event=None, **_kwargs):
+async def _on_inbound(event=None, gateway=None, **_kwargs):
     source = getattr(event, "source", None)
     platform = _platform(source)
     user_id = str(getattr(source, "user_id", "") or "")
@@ -52,6 +52,21 @@ def _on_inbound(event=None, **_kwargs):
     if updated != aliases:
         save_aliases(_alias_path(), updated)
         aliases = updated
+    admin = is_admin(config, *observed, aliases=aliases)
+    if platform == "feishu" and not admin and gateway is not None:
+        from tools.approval import has_blocking_approval
+        command = event.get_command()
+        pending = has_blocking_approval(gateway._session_key_for_source(source))
+        plain_choice = gateway._plaintext_approval_words().get(str(event.text or "").strip().lower()) if pending else None
+        if command in {"approve", "deny"} or plain_choice is not None:
+            adapter = gateway._delivery_adapter_for(source)
+            if adapter is not None:
+                await adapter.send(
+                    source.chat_id, "危险命令的批准或拒绝只能由管理员处理。查询自己的任务和个人扫码授权不需要这类批准。",
+                    reply_to=getattr(event, "message_id", None),
+                    metadata={"thread_id": source.thread_id} if source.thread_id else None,
+                )
+            return {"action": "skip", "reason": "execution_approval_requires_admin"}
     if should_enroll(config, platform=platform, user_id=user_id, is_bot=bool(getattr(source, "is_bot", False))):
         try:
             record_recognized(user_id, str(getattr(source, "user_name", "") or ""))
@@ -59,7 +74,7 @@ def _on_inbound(event=None, **_kwargs):
             logger.warning("could not record a colleague in the recognized list", exc_info=True)
     replacement = inbound_text(
         str(getattr(event, "text", "") or ""),
-        is_admin_sender=is_admin(config, *observed, aliases=aliases),
+        is_admin_sender=admin,
     )
     if replacement is None:
         return None

@@ -8,6 +8,7 @@ keeping the stock topic behavior.
 from __future__ import annotations
 
 import logging
+import json
 from typing import Any, Optional
 
 from gateway.platforms.base import SendResult
@@ -39,6 +40,17 @@ def missing_seams(adapter_cls: type) -> list[str]:
 
 
 class LarkTopicAdapter(FeishuAdapter):
+    def _is_interactive_operator_authorized(self, open_id: str) -> bool:
+        """Shared-machine execution and software updates require a team admin."""
+        if not open_id:
+            return False
+        root = get_hermes_home() / "lark-access"
+        try:
+            config = json.loads((root / "config.json").read_text())
+            return open_id in config.get("admins", [])
+        except (OSError, ValueError, AttributeError):
+            return False
+
     def __init__(self, config: Any, *, store: Optional[TopicStore] = None):
         super().__init__(config)
         self._topics = store or TopicStore(get_hermes_home() / "lark-topics" / "topics.json")
