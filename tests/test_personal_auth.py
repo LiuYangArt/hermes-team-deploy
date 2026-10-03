@@ -49,6 +49,10 @@ class IsolationTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_turn_guides_json_processing_to_jq(self):
+        self.assertIn("已安装的 jq", policy.TURN_NOTE)
+        self.assertIn("不要为 JSON 整理生成 python -c", policy.TURN_NOTE)
+
     def _tool(self, command, user="ou_a", alt="", tool="terminal"):
         return policy.tool_decision(
             user_ids=(user, alt),

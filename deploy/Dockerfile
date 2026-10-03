@@ -14,6 +14,9 @@ RUN rm -rf /opt/hermes/.venv && \
     /opt/hermes/.venv/bin/python -m docker.build_agent && \
     /opt/hermes/.venv/bin/python -c 'import lark_oapi; from pm.extras import available; assert available("feishu")' && \
     chmod -R a+rX,go-w /opt/hermes/.venv && rm -f /opt/hermes/.venv/.lock
+# JSON filtering and aggregation must not require executing generated Python.
+RUN apt-get update && apt-get install -y --no-install-recommends jq && \
+    rm -rf /var/lib/apt/lists/*
 COPY deploy/official-tools.json deploy/install_official_tools.sh deploy/enable_team_plugins.py deploy/team-startup.sh /opt/hermes/
 COPY extensions/lark-topics /opt/hermes/team-extensions/lark-topics
 COPY extensions/lark-access /opt/hermes/team-extensions/lark-access

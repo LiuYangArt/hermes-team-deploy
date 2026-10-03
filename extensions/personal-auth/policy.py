@@ -26,6 +26,12 @@ TURN_NOTE = (
     "缺少授权时调用 start，展示原样链接、二维码和有效期；本轮先结束。本人说已授权后调用 complete，再继续原请求。"
     "设备码由工具保管，不运行 CLI auth login/logout，不手动读写授权目录。Meegle 首次授权先完成 Lark 身份核对。"
     "Lark 任务的新建、修改、完成、重新打开、分配负责人和加备注仍然用机器人身份。"
+    "查询结果需要筛选、排序或统计时，优先使用 CLI 的字段选择和服务端过滤。"
+    "本地 JSON 整理使用已安装的 jq，直接运行 jq '表达式' 本轮工具返回的结果文件；"
+    "也可先用 read_file 读取较小结果。不要为 JSON 整理生成 python -c、node -e、sh -c 或临时脚本。"
+    "Meegle CLI 调用与本地结果处理分成两次工具调用，不拼接 shell 管道。"
+    "jq 支持 map、select、sort_by、group_by、length；先核对实际 JSON 结构，"
+    "只处理本轮查询返回的数据，按服务端分页取齐后才声称全量统计。"
 )
 
 _ID = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,79}$")
