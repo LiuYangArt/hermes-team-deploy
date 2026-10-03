@@ -219,3 +219,9 @@
 - [x] 云端真实 `my bots` 回合已完成一次多技能读取：真实请求和最终回复均回读，数据库记录 `skill_view` 3 次、`terminal` 1 次，单回合只有 1 条 bot 回复；证据见 `artifacts/issue-8/test-a-thread.json` 与 `artifacts/issue-8/test-a-tools.json`。
 - [x] 云端真实长答案完整回读 180 行，分为 8000 和 4239 字符的两条消息，均在同一原生话题；取消回合的原进度已更新为停止提示。证据见 `artifacts/issue-8/test-b-summary.json`、`artifacts/issue-8/cancel-thread.json`。
 - [x] 真实入口失败回合执行 `false`，回读失败退出码 1 且未重试；不可读附件回读明确要求重新上传替换件；引用回归回读了被引用消息原文，且回复保持在同一话题。证据见 `artifacts/issue-8/final-main.json`、`final-attachment-threads.json`、`quote-thread.json`。
+
+## 2026-10-03 Issue #23 查询结果整理回归
+
+- [x] 用户反馈 Meegle 查询后生成 Python 统计脚本触发审批，已重开 #23。直接 CLI 查询的修复不等于完整查询流程通过。
+- [x] 归属 Deploy 公共工具环境与个人授权扩展的结果处理指引：镜像增加 Debian jq，优先 CLI 投影/服务端过滤，本地 JSON 用 jq 整理；不放行任意 Python、不关闭 Tirith、不写项目业务字段规则。
+- [ ] 云端重新部署并验证查询、筛选、统计和真实群聊回答不出现危险审批；危险命令仍保留原审批边界。
