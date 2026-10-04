@@ -14,3 +14,6 @@
 !extensions/lark-access/**
 !extensions/personal-auth
 !extensions/personal-auth/**
+
+!deploy/core-patches/cron-sdk-receipt.patch
+!deploy/core-patches/cron-approval-scope.patch

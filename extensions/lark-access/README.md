@@ -15,3 +15,9 @@
 危险命令的卡片批准、文字 `/approve`、`/deny`，以及存在待批命令时的批准词，只接受管理员。卡片以受保护配置中的管理员 open id 为准，不把消息接入名单当作管理员名单；软件更新确认同样只接受管理员。普通澄清、日期查询、个人授权和读取本人任务保持可用。
 
 验证：`python3 -m unittest discover -s tests -p 'test_lark_access.py' -v`。审批入口测试 `tests/test_execution_approval_access.py` 需要 Hermes 的 Python 环境；它覆盖卡片的首次与二次权限检查、配置缺失拒绝、文字批准和普通澄清的区别。
+
+### 定时任务命令权限
+
+仅管理员可通过 cronjob_manage 创建和管理任务，终端管理命令引导回该入口。后台每次工具调用从任务记录读取 personal_creator 并核对当前管理员名单；不使用触发者或模型传入的身份。合法创建者的任务在该次调用中使用 approve 审批范围，结束或异常后立即恢复；全局 cron_mode 不变。缺创建者或管理员资格撤销时拒绝执行。系统禁止命令、配置保护及个人账号隔离仍适用。
+
+验证：使用 Core 虚拟环境运行 pytest ../hermes-team-deploy/tests/test_scheduled_permissions.py。

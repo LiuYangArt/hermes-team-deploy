@@ -29,6 +29,14 @@ def manage_cron(args, **kwargs):
     if platform != "feishu":
         return _cronjob_handler(args, **kwargs)
     speaker = canonical((user, alt), load_links(_links_path()))
+    if args.get("action") != "list":
+        try:
+            config = json.loads((_home() / "lark-access" / "config.json").read_text())
+            admin = speaker in config.get("admins", [])
+        except (OSError, ValueError, TypeError):
+            admin = False
+        if not admin:
+            return json.dumps({"success": False, "error": "只有管理员可以创建或管理定时任务。"}, ensure_ascii=False)
     gate = creation_gate(args, speaker, _home())
     if gate:
         return json.dumps({"success": False, "error": gate["message"]}, ensure_ascii=False)

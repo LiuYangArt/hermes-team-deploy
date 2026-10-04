@@ -293,7 +293,7 @@ def _terminal_decision(command: str, admin: bool) -> dict | None:
     if _terminal_locked(lowered):
         return _block(REFUSAL_LOCKED)
     if _cron_terminal_write(lowered):
-        return None if admin else _block(REFUSAL_ADMIN)
+        return _block("请用 cronjob_manage 管理定时任务，以核验管理员身份并保存创建者授权。" if admin else REFUSAL_ADMIN)
     if not admin and _terminal_shared(lowered):
         return _block(REFUSAL_ADMIN)
     return None

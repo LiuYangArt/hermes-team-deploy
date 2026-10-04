@@ -19,3 +19,11 @@
 - 修改范围：仅在 raw_response 为 dict 时读取可选降级字段；保持发送成功判定和错误策略。
 - 验证：Core `TestDeliverResultLiveAdapterUnconfirmed` 3 项通过；真实云端发布前待验收。
 - 删除条件：官方 SendResult/raw_response 契约统一为 dict 后删除补丁并重跑回归。
+
+## Core #4：单次后台调用的审批范围
+
+需求：管理员创建的任务继承创建者命令权限。现有 tool_execution 中间件能包围调用，但 cron_mode 只读取全局配置；不能隔离并发任务。最小复现为 cron_mode=deny 下含混合文字的命令被无人值守扫描拒绝。
+
+范围：Core tools/approval_context.py 的 cron_approval_scope，ContextVar 进入/恢复；不含团队身份判断。Deploy extensions/lark-access/scheduled.py 读取持久创建者和当前管理员名单。全局仍为 deny，禁止命令底线保持。
+
+官方基线沿用当前锁定镜像；构建应用 deploy/core-patches/cron-approval-scope.patch。测试：Core tests/tools/test_cron_approval_scope.py、Deploy tests/test_scheduled_permissions.py。官方提供等价调用范围接口后删除补丁。

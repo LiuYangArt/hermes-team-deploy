@@ -97,7 +97,22 @@ if __name__ == '__main__':
     unittest.main()
 
 class ManagedCreationTest(ScheduledAuthTest):
+    def test_non_admin_cannot_create_even_with_personal_authorization(self):
+        from unittest.mock import Mock
+        tools = types.ModuleType('tools.cronjob_tools')
+        tools._cronjob_handler = Mock()
+        tools._notify_provider_jobs_changed_safe = Mock()
+        jobs = sys.modules['cron.jobs']
+        jobs.update_job, jobs.resume_job = Mock(), Mock()
+        with patch.dict(sys.modules, {'tools.cronjob_tools': tools}):
+            result = json.loads(scheduled.manage_cron({'action': 'create', 'personal_services': []}))
+        self.assertFalse(result['success'])
+        self.assertIn('管理员', result['error'])
+        tools._cronjob_handler.assert_not_called()
+
     def test_create_is_paused_until_requirements_are_persisted(self):
+        (self.root / "lark-access").mkdir()
+        (self.root / "lark-access" / "config.json").write_text(json.dumps({"admins": ["ou_b"]}))
         calls = []
         def create(args, **kwargs):
             self.assertTrue(args['paused'])

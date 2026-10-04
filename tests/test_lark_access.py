@@ -139,7 +139,7 @@ class PermissionTest(unittest.TestCase):
         self.assertIsNone(self._tool("cronjob_manage", {"action": "list"}))
         self.assertIsNone(self._tool("cronjob_manage", {"action": "create", "schedule": "0 9 * * *"}, user="ou_admin"))
         self.assertIsNone(self._tool("terminal", {"command": "hermes cron list"}))
-        self.assertIsNone(self._tool("terminal", {"command": "hermes cron pause daily"}, user="ou_admin"))
+        self.assertIn("cronjob_manage", self._tool("terminal", {"command": "hermes cron pause daily"}, user="ou_admin")["message"])
         for action in ("create", "update", "pause", "resume", "remove", "run"):
             decision = self._tool("cronjob_manage", {"action": action})
             self.assertEqual(decision["action"], "block", action)

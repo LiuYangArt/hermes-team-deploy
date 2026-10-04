@@ -36,6 +36,8 @@ _scheduler_started = False
 def register(ctx) -> None:
     ctx.register_hook("pre_gateway_dispatch", _on_inbound)
     ctx.register_hook("pre_tool_call", _on_tool)
+    from .scheduled import execute_as_creator
+    ctx.register_middleware("tool_execution", execute_as_creator)
     ctx.register_hook("pre_llm_call", _on_turn)
     if os.environ.get("HERMES_LARK_ACCESS_SCHEDULER", "1") != "0":
         _start_scheduler()
@@ -81,8 +83,16 @@ async def _on_inbound(event=None, gateway=None, **_kwargs):
     return {"action": "rewrite", "text": replacement}
 
 
-def _on_tool(tool_name="", args=None, **_kwargs):
-    platform, user_id, alt_id = _session_identity()
+def _on_tool(tool_name="", args=None, task_id="", **_kwargs):
+    if str(task_id).startswith("cron:"):
+        from .scheduled import creator_is_admin
+        try:
+            authorized = creator_is_admin(task_id)
+        except Exception:
+            authorized = False
+        if not authorized:
+            return {"action": "block", "message": "定时任务创建者身份缺失或已不再是管理员，本次未执行。"}
+    platform, user_id, alt_id = _session_identity(task_id)
     return tool_decision(
         platform=platform,
         user_ids=(user_id, alt_id),
@@ -163,7 +173,13 @@ def _field(value, key):
     return getattr(value, key, None)
 
 
-def _session_identity() -> tuple[str, str, str]:
+def _session_identity(task_id="") -> tuple[str, str, str]:
+    if str(task_id).startswith("cron:"):
+        try:
+            from .scheduled import creator_identity
+            return creator_identity(task_id)
+        except Exception:
+            return "feishu", "", ""
     try:
         from gateway.session_context import get_session_env
     except Exception:

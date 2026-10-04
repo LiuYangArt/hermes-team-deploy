@@ -1,0 +1,38 @@
+diff --git a/tools/approval_context.py b/tools/approval_context.py
+index f71381c33c..710cd3ea2c 100644
+--- a/tools/approval_context.py
++++ b/tools/approval_context.py
+@@ -6,6 +6,7 @@ gate in :mod:`tools.approval`.
+ """
+ 
+ import contextvars
++from contextlib import contextmanager
+ import logging
+ import os
+ from agent.i18n import t
+@@ -289,9 +290,24 @@ def _binary_approval_mode(key: str) -> str:
+         return "deny"
+ 
+ 
++_cron_approval_mode: contextvars.ContextVar[str | None] = _ctx("cron_approval_mode", None)
++
++
++@contextmanager
++def cron_approval_scope(mode: str):
++    """Let trusted execution middleware bind policy without changing other runs."""
++    if mode not in {"approve", "deny"}:
++        raise ValueError("cron approval mode must be approve or deny")
++    token = _cron_approval_mode.set(mode)
++    try:
++        yield
++    finally:
++        _cron_approval_mode.reset(token)
++
++
+ def _get_cron_approval_mode() -> str:
+     """Read the cron approval mode from config. Returns 'deny' or 'approve'."""
+-    return _binary_approval_mode("cron_mode")
++    return _cron_approval_mode.get() or _binary_approval_mode("cron_mode")
+ 
+ 
+ def _get_single_query_approval_mode() -> str:

@@ -25,6 +25,10 @@ RUN sh /opt/hermes/install_official_tools.sh --image && \
     chmod 755 /opt/hermes/team-startup.sh && \
     cp /opt/hermes/team-startup.sh /etc/cont-init.d/02-hermes-team && \
     chmod -R a+rX /opt/hermes/official-skills /opt/hermes/team-extensions /usr/local/lib /usr/local/bin
+COPY deploy/core-patches/cron-approval-scope.patch /tmp/cron-approval-scope.patch
+RUN git -C /opt/hermes apply --check /tmp/cron-approval-scope.patch && \
+    git -C /opt/hermes apply /tmp/cron-approval-scope.patch && \
+    rm /tmp/cron-approval-scope.patch
 COPY deploy/core-patches/cron-sdk-receipt.patch /tmp/cron-sdk-receipt.patch
 RUN git -C /opt/hermes apply --check /tmp/cron-sdk-receipt.patch && \
     git -C /opt/hermes apply /tmp/cron-sdk-receipt.patch && \
