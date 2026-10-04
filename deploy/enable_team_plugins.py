@@ -155,6 +155,29 @@ def ensure_feishu_toolset(text: str, toolset: str) -> str:
     return _join(lines)
 
 
+def ensure_personal_cron_override(text: str) -> str:
+    """Opt in to the managed creator-authorization wrapper, preserving unrelated config text."""
+    lines = text.splitlines()
+    start, end = 0, len(lines)
+    for depth, key in enumerate(("plugins", "entries", "personal-auth", "allow_tool_override")):
+        indent = depth * 2
+        at = next((i for i in range(start, end) if _indent(lines[i]) == indent
+                   and lines[i].strip().split(":", 1)[0] == key), None)
+        if at is None:
+            lines.insert(end, " " * indent + key + (": true" if depth == 3 else ":"))
+            at = end
+        elif depth == 3:
+            lines[at] = " " * indent + key + ": true"
+        elif lines[at].split(":", 1)[1].split("#", 1)[0].strip() not in ("", "{}"):
+            raise ValueError(f"{key} must use a block mapping for managed tool configuration")
+        elif "{}" in lines[at]:
+            lines[at] = " " * indent + key + ":"
+        start = at + 1
+        end = next((i for i in range(start, len(lines)) if lines[i].strip()
+                    and not lines[i].lstrip().startswith("#") and _indent(lines[i]) <= indent), len(lines))
+    return _join(lines)
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print("usage: enable_team_plugins.py CONFIG", file=sys.stderr)
@@ -162,7 +185,7 @@ def main(argv: list[str]) -> int:
     path = Path(argv[1])
     text = path.read_text(encoding="utf-8") if path.is_file() else ""
     updated = ensure_feishu_cron_toolset(ensure_team_plugins(text))
-    path.write_text(ensure_feishu_toolset(updated, "personal_auth"), encoding="utf-8")
+    path.write_text(ensure_personal_cron_override(ensure_feishu_toolset(updated, "personal_auth")), encoding="utf-8")
     return 0
 
 

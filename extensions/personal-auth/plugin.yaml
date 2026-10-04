@@ -1,6 +1,7 @@
 name: personal-auth
-version: "0.2.0"
+version: "0.3.0"
 description: "普通成员自行授权，核对身份后按人使用 Lark 与 Meegle。"
 provides_tools:
   - personal_auth
+  - cronjob_manage
 author: hermes-team

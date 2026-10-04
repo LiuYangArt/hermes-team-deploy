@@ -21,7 +21,9 @@ logger = logging.getLogger(__name__)
 
 def register(ctx) -> None:
     from .authorization import SCHEMA
+    from .scheduled import register_cron
     ctx.register_tool(name="personal_auth", toolset="personal_auth", schema=SCHEMA, handler=_authorize)
+    register_cron(ctx)
     try:
         outcome = retire_shared_meegle(_home())
         if outcome == "moved":
@@ -33,9 +35,16 @@ def register(ctx) -> None:
     ctx.register_hook("pre_llm_call", _on_turn)
 
 
-def _authorize(args):
+def _authorize(args, task_id="", **_kwargs):
     from .authorization import Authorization
-    platform, user_id, alt_id = _session_identity()
+    platform, user_id, alt_id = _session_identity(task_id)
+    if str(task_id).startswith("cron:") and args.get("action") != "status":
+        return json.dumps({"ok": False, "error": "interactive_authorization_required", "message": "后台只能查看创建者授权状态；请创建者在 Lark 对话中完成授权。"}, ensure_ascii=False)
+    if str(task_id).startswith("cron:"):
+        from .scheduled import runtime_gate
+        gate = runtime_gate(task_id, "personal_auth", args)
+        if gate:
+            return json.dumps({"ok": False, "error": "undeclared_personal_service", "message": gate["message"]}, ensure_ascii=False)
     if platform != "feishu":
         return json.dumps({"ok": False, "error": "lark_request_required"})
     speaker = canonical((user_id, alt_id), load_links(_links_path()))
@@ -57,8 +66,16 @@ def _on_inbound(event=None, **_kwargs):
     return None
 
 
-def _on_tool(tool_name="", args=None, **_kwargs):
-    _platform_name, user_id, alt_id = _session_identity()
+def _on_tool(tool_name="", args=None, task_id="", **_kwargs):
+    _platform_name, user_id, alt_id = _session_identity(task_id)
+    if str(task_id).startswith("cron:"):
+        from .scheduled import runtime_gate
+        gate = runtime_gate(task_id, tool_name, args or {})
+        if gate:
+            return gate
+    if tool_name in {"cronjob", "cronjob_manage"} and _platform_name == "feishu":
+        if tool_name == "cronjob":
+            return {"action": "block", "message": "请使用 cronjob_manage 管理定时任务并核验创建者授权。"}
     if _platform_name != "feishu":
         return None
     decision = tool_decision(
@@ -112,7 +129,10 @@ def _sender_ids(event) -> tuple[str, ...]:
     return tuple(dict.fromkeys(found))
 
 
-def _session_identity() -> tuple[str, str, str]:
+def _session_identity(task_id="") -> tuple[str, str, str]:
+    if str(task_id).startswith("cron:"):
+        from .scheduled import creator_identity
+        return creator_identity(task_id)
     try:
         from gateway.session_context import get_session_env
     except Exception:

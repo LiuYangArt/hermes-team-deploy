@@ -27,6 +27,14 @@ enable = _load(ENABLE_PATH, "enable_team_plugins")
 
 
 class EnablePluginsTest(unittest.TestCase):
+    def test_creator_wrapper_opt_in_preserves_other_entries(self):
+        original = "plugins:\n  enabled: [personal-auth]\n  entries:\n    other:\n      allowed: true\nmodel:\n  default: demo\n"
+        result = enable.ensure_personal_cron_override(original)
+        self.assertIn("    personal-auth:\n      allow_tool_override: true", result)
+        self.assertIn("    other:\n      allowed: true", result)
+        self.assertIn("model:\n  default: demo", result)
+        self.assertEqual(enable.ensure_personal_cron_override(result), result)
+
     def test_adds_the_list_under_an_existing_plugins_section(self):
         text = enable.ensure_team_plugins(
             "plugins:\n  # keep this\n  clone_timeout_seconds: 300\nmodel:\n  default: demo\n"
