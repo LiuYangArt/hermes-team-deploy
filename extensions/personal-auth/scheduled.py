@@ -40,7 +40,7 @@ def manage_cron(args, **kwargs):
         if not response.get("success"):
             return json.dumps(response, ensure_ascii=False)
         ident = response["job_id"]
-        update_job(ident, {"personal_services": required_services(args),
+        update_job(ident, {"personal_services": required_services(args), "personal_creator": speaker,
                           "paused_reason": args.get("paused_reason")})
         if not args.get("paused", False):
             resume_job(ident)
@@ -68,7 +68,7 @@ def creator_identity(task_id):
     origin = job.get("origin") or {}
     if not isinstance(origin, dict) or origin.get("platform") != "feishu":
         return "feishu", "", ""
-    return "feishu", str(origin.get("user_id") or ""), ""
+    return "feishu", str(job.get("personal_creator") or ""), ""
 
 
 def runtime_gate(task_id, tool_name, args):
@@ -138,7 +138,7 @@ def creation_gate(args, speaker, root):
         origin = job.get("origin") or {}
         if not isinstance(origin, dict) or origin.get("platform") != "feishu":
             return {"action": "block", "message": "任务没有已核实的 Lark 创建者，不能在对话中启用个人授权。"}
-        speaker = canonical((origin.get("user_id") or "",), load_links(root / "personal-auth" / "speakers.json"))
+        speaker = str(job.get("personal_creator") or "")
         spec = {**job, **{k: v for k, v in args.items() if v is not None}}
     services = required_services(spec)
     if services and (spec.get("script") or spec.get("no_agent")):

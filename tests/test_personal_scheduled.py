@@ -24,6 +24,7 @@ class ScheduledAuthTest(unittest.TestCase):
                      'b': {'id': 'b', 'origin': {'platform': 'feishu', 'user_id': 'ou_b'}, 'skills': ['meegle']}}
         for job in self.jobs.values():
             job['personal_services'] = ['meegle']
+            job['personal_creator'] = job['origin']['user_id']
         jobs = types.ModuleType('cron.jobs')
         jobs.get_job = jobs.resolve_job_ref = lambda ident: self.jobs.get(ident)
         session = types.ModuleType('gateway.session_context')
@@ -126,6 +127,7 @@ class ManagedCreationTest(ScheduledAuthTest):
         self.assertTrue(result['success'])
         self.assertEqual(calls, ['created-paused', 'requirements-saved', 'resumed'])
         self.assertEqual(self.jobs['new']['origin']['user_id'], 'ou_b')
+        self.assertEqual(self.jobs['new']['personal_creator'], 'ou_b')
 
     def test_undeclared_services_cannot_be_used_in_background(self):
         self.jobs['a']['personal_services'] = []
