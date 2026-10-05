@@ -69,12 +69,40 @@ def is_server_thread_id(value: Optional[str]) -> bool:
     return bool(value) and str(value).startswith("omt_")
 
 
+def sender_is_this_bot(
+    sender_id: Optional[str], app_id: Optional[str], bot_open_id: Optional[str] = None,
+) -> bool:
+    """A fetched Lark message reports the app id for this bot's own sends."""
+    sender = _clean(sender_id)
+    if not sender:
+        return False
+    return sender in {_clean(app_id), _clean(bot_open_id)} - {None}
+
+
+def sender_id_from_fetched_message(message: Any) -> Optional[str]:
+    if message is None:
+        return None
+    sender = message.get("sender") if isinstance(message, dict) else getattr(message, "sender", None)
+    if isinstance(sender, dict):
+        return _clean(sender.get("id"))
+    return _clean(getattr(sender, "id", None))
+
+
+def sender_id_from_get_response(response: Any) -> Optional[str]:
+    data = response.get("data") if isinstance(response, dict) else getattr(response, "data", None)
+    items = _message_items(data)
+    if items:
+        return sender_id_from_fetched_message(items[0])
+    return sender_id_from_fetched_message(data)
+
+
 class TopicStore:
     def __init__(self, path: Path):
         self.path = Path(path)
         self._lock = threading.Lock()
         self._topics: dict[str, Topic] = {}
         self._aliases: dict[str, str] = {}
+        self._unrelated: set[str] = set()
         self._load()
 
     def topic_for_alias(self, app_id: str, chat_id: str, alias: Optional[str]) -> Optional[Topic]:
@@ -103,6 +131,20 @@ class TopicStore:
             app_id, chat_id, root_id)
         return topic is not None and (sender in topic.participants or sender == topic.active_sender)
 
+    def needs_origin_check(self, app_id: str, chat_id: str, thread_id: Optional[str]) -> bool:
+        """A server topic we have not opened and have not already classified.
+
+        The first message has to be seen once, so we can tell whether the topic
+        started from this bot. After that, unrelated topics stay behind the mention gate.
+        """
+        thread_id = _clean(thread_id)
+        if not app_id or not chat_id or not is_server_thread_id(thread_id):
+            return False
+        with self._lock:
+            if self._topic_for_alias(app_id, chat_id, thread_id) is not None:
+                return False
+            return self._alias_key(app_id, chat_id, thread_id) not in self._unrelated
+
     def sender_is_active(self, app_id: str, chat_id: str, discussion_key: Optional[str], sender_id: Optional[str]) -> bool:
         sender = _clean(sender_id)
         topic = self.topic_for_alias(app_id, chat_id, discussion_key)
@@ -125,7 +167,7 @@ class TopicStore:
         self, *, app_id: str, chat_id: str, chat_type: str, message_id: str,
         thread_id: Optional[str], parent_id: Optional[str], root_id: Optional[str],
         sender_id: Optional[str], mentioned: bool, is_bot: bool = False,
-        mentions_other: bool = False, text: str = "",
+        mentions_other: bool = False, text: str = "", root_from_self: Optional[bool] = None,
     ) -> InboundDecision:
         message_id = _clean(message_id) or ""
         sender = _clean(sender_id)
@@ -136,10 +178,16 @@ class TopicStore:
         with self._lock:
             if native_thread:
                 topic = self._topic_for_alias(app_id, chat_id, native_thread)
-                if topic is None:
-                    # An official topic this extension did not open stays on the official key.
-                    return InboundDecision(None, None, False)
-                return self._decide(topic, sender, message_id, text, mentioned, mentions_other)
+                if topic is not None:
+                    return self._decide(topic, sender, message_id, text, mentioned, mentions_other)
+                if is_server_thread_id(native_thread):
+                    return self._route_unknown_server_thread(
+                        app_id=app_id, chat_id=chat_id, native_thread=native_thread,
+                        root_id=_clean(root_id), parent_id=_clean(parent_id), message_id=message_id,
+                        sender=sender, text=text, mentioned=mentioned, is_bot=is_bot,
+                        mentions_other=mentions_other, root_from_self=root_from_self,
+                    )
+                return InboundDecision(None, None, False)
 
             quoted = self._topic_for_alias(app_id, chat_id, parent_id) or self._topic_for_alias(
                 app_id, chat_id, root_id)
@@ -165,6 +213,81 @@ class TopicStore:
             self._aliases[self._alias_key(app_id, chat_id, message_id)] = message_id
             self._save()
             return InboundDecision(message_id, message_id, True)
+
+    def _route_unknown_server_thread(
+        self, *, app_id: str, chat_id: str, native_thread: str, root_id: Optional[str],
+        parent_id: Optional[str], message_id: str, sender: Optional[str], text: str,
+        mentioned: bool, is_bot: bool, mentions_other: bool, root_from_self: Optional[bool],
+    ) -> InboundDecision:
+        """A topic Lark already has, which this extension has not joined.
+
+        @ the bot adopts it. A topic that started from this bot's own message
+        adopts the first person who speaks, unless that first line calls someone else.
+        A colleague's topic is remembered so later lines are not looked up again.
+        """
+        if mentioned and sender and not is_bot:
+            return self._adopt_server_thread(
+                app_id=app_id, chat_id=chat_id, native_thread=native_thread, root_id=root_id,
+                parent_id=parent_id, message_id=message_id, sender=sender, text=text,
+                mentioned=True, mentions_other=mentions_other,
+            )
+        if root_from_self is False:
+            self._unrelated.add(self._alias_key(app_id, chat_id, native_thread))
+            self._save()
+            return InboundDecision(None, None, False, False)
+        if root_from_self is True and sender and not is_bot:
+            return self._adopt_server_thread(
+                app_id=app_id, chat_id=chat_id, native_thread=native_thread, root_id=root_id,
+                parent_id=parent_id, message_id=message_id, sender=sender, text=text,
+                mentioned=False, mentions_other=mentions_other,
+            )
+        return InboundDecision(None, None, False, False)
+
+    def _adopt_server_thread(
+        self, *, app_id: str, chat_id: str, native_thread: str, root_id: Optional[str],
+        parent_id: Optional[str], message_id: str, sender: str, text: str,
+        mentioned: bool, mentions_other: bool,
+    ) -> InboundDecision:
+        self._unrelated.discard(self._alias_key(app_id, chat_id, native_thread))
+        reply_anchor = root_id or parent_id or message_id
+        discussion_key = reply_anchor
+        existing = self._topic_for_alias(app_id, chat_id, reply_anchor)
+        if existing is not None and existing.server_thread_id not in (None, native_thread):
+            discussion_key = message_id
+            existing = None
+        if existing is not None:
+            if existing.server_thread_id != native_thread:
+                existing = self._replace(
+                    existing, server_thread_id=native_thread, root_id=root_id or existing.root_id,
+                )
+            self._bind_alias(app_id, chat_id, native_thread, existing.discussion_key)
+            self._save()
+            return self._decide(existing, sender, message_id, text, mentioned, mentions_other)
+
+        quiet = (not mentioned) and mentions_other
+        line = (text or "").strip()
+        heard = (f"{sender or '有人'}: {line[:200]}",) if quiet and line else ()
+        topic = Topic(
+            app_id=app_id, chat_id=chat_id, discussion_key=discussion_key,
+            anchor_message_id=reply_anchor, server_thread_id=native_thread, root_id=root_id,
+            participants=frozenset({sender}),
+            attention="listening" if quiet else "talking", active_sender=sender, heard=heard,
+        )
+        self._topics[self._topic_storage_key(topic)] = topic
+        for alias in (native_thread, discussion_key, message_id, root_id):
+            self._bind_alias(app_id, chat_id, alias, discussion_key)
+        self._save()
+        return InboundDecision(discussion_key, discussion_key, True, not quiet)
+
+    def _bind_alias(self, app_id: str, chat_id: str, alias: Optional[str], discussion_key: str) -> None:
+        alias = _clean(alias)
+        if not alias:
+            return
+        key = self._alias_key(app_id, chat_id, alias)
+        current = self._aliases.get(key)
+        if current and current != discussion_key:
+            return
+        self._aliases[key] = discussion_key
 
     def _decide(
         self, topic: Topic, sender: Optional[str], message_id: str, text: str,
@@ -307,7 +430,8 @@ class TopicStore:
             raise TopicStoreError(f"cannot read topic map: {self.path}") from exc
         topics = payload.get("topics") if isinstance(payload, dict) else None
         aliases = payload.get("aliases") if isinstance(payload, dict) else None
-        if not isinstance(topics, list) or not isinstance(aliases, dict):
+        unrelated = payload.get("unrelated_threads", []) if isinstance(payload, dict) else None
+        if not isinstance(topics, list) or not isinstance(aliases, dict) or not isinstance(unrelated, list):
             raise TopicStoreError(f"topic map is not usable: {self.path}")
         loaded: dict[str, Topic] = {}
         for item in topics:
@@ -320,14 +444,21 @@ class TopicStore:
             if not isinstance(alias, str) or not isinstance(key, str) or not key:
                 raise TopicStoreError(f"topic map has an invalid alias: {self.path}")
             cleaned_aliases[alias] = key
+        cleaned_unrelated: set[str] = set()
+        for item in unrelated:
+            if not isinstance(item, str) or not item:
+                raise TopicStoreError(f"topic map has an invalid unrelated topic: {self.path}")
+            cleaned_unrelated.add(item)
         self._topics = loaded
         self._aliases = cleaned_aliases
+        self._unrelated = cleaned_unrelated
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "topics": [_topic_to_json(topic) for topic in self._topics.values()],
             "aliases": self._aliases,
+            "unrelated_threads": sorted(self._unrelated),
         }
         temporary = self.path.with_suffix(self.path.suffix + ".tmp")
         temporary.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True), encoding="utf-8")

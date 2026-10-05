@@ -17,7 +17,10 @@ from hermes_constants import get_hermes_home
 from plugins.platforms.feishu.adapter import FeishuAdapter
 
 from . import replies
-from .routing import InboundDecision, TopicStore, is_server_thread_id, thread_fields_from_response
+from .routing import (
+    InboundDecision, TopicStore, is_server_thread_id, sender_id_from_get_response,
+    sender_is_this_bot, thread_fields_from_response,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +170,10 @@ class LarkTopicAdapter(FeishuAdapter):
             sender_id=_sender_open_id(sender_id),
         ):
             return None
+        # An unknown server topic is let through once. Processing then checks
+        # whether it started from this bot, and later lines stay at this gate.
+        if self._topics.needs_origin_check(self._app_id or "", chat_id, getattr(message, "thread_id", None)):
+            return None
         return reason
 
     async def _process_inbound_message(
@@ -175,12 +182,21 @@ class LarkTopicAdapter(FeishuAdapter):
         sender = _sender_open_id(sender_id)
         mentioned = self._mentions_self(message)
         preview = _message_preview(message)
+        chat_id = getattr(message, "chat_id", "") or ""
+        thread_id = getattr(message, "thread_id", None)
+        root_from_self = None
+        if (
+            not mentioned
+            and not is_bot
+            and self._topics.needs_origin_check(self._app_id or "", chat_id, thread_id)
+        ):
+            root_from_self = await self._thread_root_from_self(message)
         decision = self._topics.route_inbound(
             app_id=self._app_id or "",
-            chat_id=getattr(message, "chat_id", "") or "",
+            chat_id=chat_id,
             chat_type=chat_type,
             message_id=message_id,
-            thread_id=getattr(message, "thread_id", None),
+            thread_id=thread_id,
             parent_id=getattr(message, "parent_id", None) or getattr(message, "upper_message_id", None),
             root_id=getattr(message, "root_id", None),
             sender_id=sender,
@@ -188,9 +204,10 @@ class LarkTopicAdapter(FeishuAdapter):
             is_bot=is_bot,
             mentions_other=self._mentions_other(message),
             text=preview,
+            root_from_self=root_from_self,
         )
         self._inbound_routes[message_id] = decision
-        if decision.discussion_key and not decision.deliver:
+        if not decision.deliver:
             self._inbound_routes.pop(message_id, None)
             logger.info("[LarkTopics] kept a topic message without replying")
             return
@@ -443,6 +460,24 @@ class LarkTopicAdapter(FeishuAdapter):
         )
         if not bound:
             logger.warning("[LarkTopics] refused to rebind discussion %s to a different topic", discussion_key)
+
+    async def _thread_root_from_self(self, message: Any) -> Optional[bool]:
+        """Whether the topic root was sent by this bot. A later reply is not the start."""
+        root_id = str(getattr(message, "root_id", "") or "").strip()
+        if not root_id or not self._client:
+            return None
+        try:
+            request = self._build_get_message_request(root_id)
+            response = await self._run_blocking(self._client.im.v1.message.get, request)
+        except Exception:
+            logger.warning("[LarkTopics] failed to read who started topic root %s", root_id, exc_info=True)
+            return None
+        if not self._response_succeeded(response):
+            return None
+        sender_id = sender_id_from_get_response(response)
+        if not sender_id:
+            return None
+        return sender_is_this_bot(sender_id, self._app_id, getattr(self, "_bot_open_id", None))
 
     async def _lookup_server_topic(self, message_id: str) -> tuple[Optional[str], Optional[str]]:
         if not self._client or not message_id:
