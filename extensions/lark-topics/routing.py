@@ -225,22 +225,15 @@ class TopicStore:
         adopts the first person who speaks, unless that first line calls someone else.
         A colleague's topic is remembered so later lines are not looked up again.
         """
-        if mentioned and sender and not is_bot:
+        if sender and not is_bot and (mentioned or root_from_self is True):
             return self._adopt_server_thread(
                 app_id=app_id, chat_id=chat_id, native_thread=native_thread, root_id=root_id,
                 parent_id=parent_id, message_id=message_id, sender=sender, text=text,
-                mentioned=True, mentions_other=mentions_other,
+                mentioned=mentioned, mentions_other=mentions_other,
             )
         if root_from_self is False:
             self._unrelated.add(self._alias_key(app_id, chat_id, native_thread))
             self._save()
-            return InboundDecision(None, None, False, False)
-        if root_from_self is True and sender and not is_bot:
-            return self._adopt_server_thread(
-                app_id=app_id, chat_id=chat_id, native_thread=native_thread, root_id=root_id,
-                parent_id=parent_id, message_id=message_id, sender=sender, text=text,
-                mentioned=False, mentions_other=mentions_other,
-            )
         return InboundDecision(None, None, False, False)
 
     def _adopt_server_thread(
@@ -253,13 +246,14 @@ class TopicStore:
         discussion_key = reply_anchor
         existing = self._topic_for_alias(app_id, chat_id, reply_anchor)
         if existing is not None and existing.server_thread_id not in (None, native_thread):
-            discussion_key = message_id
+            # The anchor already belongs to a different topic. Do not steal it.
             existing = None
+            discussion_key = message_id
+        elif existing is not None and not existing.server_thread_id:
+            existing = self._replace(
+                existing, server_thread_id=native_thread, root_id=root_id or existing.root_id,
+            )
         if existing is not None:
-            if existing.server_thread_id != native_thread:
-                existing = self._replace(
-                    existing, server_thread_id=native_thread, root_id=root_id or existing.root_id,
-                )
             self._bind_alias(app_id, chat_id, native_thread, existing.discussion_key)
             self._save()
             return self._decide(existing, sender, message_id, text, mentioned, mentions_other)

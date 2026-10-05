@@ -214,7 +214,7 @@ class LarkTopicAdapter(FeishuAdapter):
         if (
             decision.discussion_key
             and _is_foreign_control(preview)
-            and not self._topics.sender_is_active(self._app_id or "", getattr(message, "chat_id", "") or "", decision.discussion_key, sender)
+            and not self._topics.sender_is_active(self._app_id or "", chat_id, decision.discussion_key, sender)
         ):
             self._inbound_routes.pop(message_id, None)
             logger.info("[LarkTopics] ignored a control request from someone other than the current speaker")
