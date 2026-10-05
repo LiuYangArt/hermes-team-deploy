@@ -75,6 +75,24 @@ class IsolationTest(unittest.TestCase):
         decision = self._tool("date '+%Y-%m-%d %H:%M:%S %z'")
         self.assertIsNone(decision)
 
+    def test_split_command_name_does_not_look_like_missing_auth(self):
+        commands = (
+            "m=$(printf 'mee%s' gle); \"$m\" auth status",
+            "m=$(printf 'lark%s' -cli); \"$m\" task +get-my-tasks",
+            "python3 -c 'import os; os.system(\"mee\"+\"gle user me\")'",
+            "echo bWVlZ2xl | base64 -d",
+            "python3 -c 'print(chr(109)+chr(101)+chr(101)+chr(103)+chr(108)+chr(101))'",
+        )
+        for command in commands:
+            decision = self._tool(command)
+            self.assertEqual(decision["action"], "block", command)
+            self.assertIn("授权仍在", decision["message"])
+            self.assertIn("不能据此判断未授权", decision["message"])
+            self.assertNotIn(policy.meegle_home(self.root, "ou_a").as_posix(), decision["message"])
+
+    def test_turn_note_forbids_rescanning_after_a_bypassed_command(self):
+        self.assertIn("禁止要求用户重新扫码", policy.TURN_NOTE)
+
     def test_b_cannot_use_as_task_grant(self):
         decision = self._tool("lark-cli task +get-related-tasks", user="ou_b")
         self.assertEqual(decision["action"], "block")

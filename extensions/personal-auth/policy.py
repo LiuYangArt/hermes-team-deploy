@@ -7,6 +7,7 @@ files, the bot identity, or the retired shared Meegle directory.
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 import shlex
@@ -18,7 +19,10 @@ REFUSAL_MEEGLE = "还没有你自己的 Meegle 授权。请用 personal_auth(ser
 REFUSAL_FOREIGN = "不能读取、指定或改用别人的授权。"
 REFUSAL_MIXED = "查自己的任务和修改任务要分开做。修改任务仍然用机器人身份。"
 REFUSAL_BOT_READ = "查自己的任务不能改成机器人身份。"
-REFUSAL_SCRIPT = "查自己的任务和 Meegle 要直接运行对应命令，这样才会用到你自己的授权。"
+REFUSAL_SCRIPT = (
+    "这条命令没有走已绑定的登录，不能据此判断未授权。授权仍在。"
+    "请只运行一条直接的 meegle 或 lark-cli 命令，不要拆开命令名，也不要套 shell、python 或 node。"
+)
 
 TURN_NOTE = (
     "定时任务固定使用创建者的个人授权。创建前先识别依赖的服务并完成 personal_auth 授权及实际只读查询验证，"
@@ -27,6 +31,7 @@ TURN_NOTE = (
     "普通成员可用 personal_auth 工具为本人扫码授权、查看状态或退出，不需要管理员。"
     "缺少授权时调用 start，展示原样链接、二维码和有效期；本轮先结束。本人说已授权后调用 complete，再继续原请求。"
     "设备码由工具保管，不运行 CLI auth login/logout，不手动读写授权目录。Meegle 首次授权先完成 Lark 身份核对。"
+    "若工具说明命令没有走已绑定的登录，授权仍然有效，禁止要求用户重新扫码；改成一条直接的 meegle 或 lark-cli 命令再试。"
     "Lark 任务的新建、修改、完成、重新打开、分配负责人和加备注仍然用机器人身份。"
     "查询结果需要筛选、排序或统计时，优先使用 CLI 的字段选择和服务端过滤。"
     "本地 JSON 整理使用已安装的 jq，直接运行 jq '表达式' 本轮工具返回的结果文件；"
@@ -46,6 +51,9 @@ _HOME_ASSIGN = re.compile(r"(?:^|[\s;&|`(])HOME\s*=", re.IGNORECASE)
 _OWN_TASK = re.compile(r"\+(?:get-my-tasks|get-related-tasks)\b")
 _BOT_TASK = re.compile(r"\+(?:create|update|complete|reopen|assign|comment)\b")
 _MEEGLE = re.compile(r"(?:^|[^A-Za-z0-9_-])meegle(?:$|[^A-Za-z0-9_-])", re.IGNORECASE)
+_LARK_CLI = re.compile(r"(?:^|[^A-Za-z0-9_])lark-cli(?:$|[^A-Za-z0-9_])", re.IGNORECASE)
+_MEEGLE_LOOSE = re.compile(r"(?<![a-z0-9])mee['\"`\s.]*gle(?![a-z0-9])", re.IGNORECASE)
+_LARK_LOOSE = re.compile(r"(?<![a-z0-9])lark['\"`\s._-]*cli(?![a-z0-9])", re.IGNORECASE)
 _AS_BOT = re.compile(r"--as(?:\s+|=)bot\b")
 
 
@@ -198,7 +206,7 @@ def tool_decision(
         code = str(args.get("code") or "")
         if _sensitive_text(code):
             return _block(REFUSAL_FOREIGN)
-        if "lark-cli" in code or _uses_meegle(code):
+        if _uses_lark_cli(code) or _uses_meegle(code):
             return _block(REFUSAL_SCRIPT)
         return None
     if name != "terminal":
@@ -210,7 +218,7 @@ def tool_decision(
         return _block(REFUSAL_FOREIGN)
     own = _owns_tasks(command)
     meegle = _uses_meegle(command)
-    lark = "lark-cli" in command
+    lark = _uses_lark_cli(command)
     bot_task = bool(_BOT_TASK.search(command))
     if not lark and not meegle:
         return None
@@ -277,7 +285,42 @@ def _owns_tasks(command: str) -> bool:
 
 
 def _uses_meegle(command: str) -> bool:
-    return bool(_MEEGLE.search(command))
+    return any(_MEEGLE.search(text) or _MEEGLE_LOOSE.search(_normalized(text)) for text in _candidate_texts(command))
+
+
+def _uses_lark_cli(command: str) -> bool:
+    return any(_LARK_CLI.search(text) or _LARK_LOOSE.search(_normalized(text)) for text in _candidate_texts(command))
+
+
+def _normalized(command: str) -> str:
+    text = command.casefold()
+    text = re.sub(r"%[-0-9.]*s", "", text)
+    return text.replace("+", " ").replace("|", " ")
+
+
+def _candidate_texts(command: str) -> list[str]:
+    texts = [command]
+    if re.search(r"base64", command, re.IGNORECASE):
+        for token in re.findall(r"[A-Za-z0-9+/]{8,}={0,2}", command):
+            try:
+                raw = base64.b64decode(token, validate=True)
+            except (ValueError, TypeError):
+                continue
+            decoded = raw.decode("utf-8", "ignore")
+            if decoded:
+                texts.append(decoded)
+    if "\\x" in command:
+        texts.append(re.sub(
+            r"\\x([0-9a-fA-F]{2})",
+            lambda match: chr(int(match.group(1), 16)),
+            command,
+        ))
+    if re.search(r"chr\s*\(", command, re.IGNORECASE):
+        numbers = [int(item) for item in re.findall(r"chr\(\s*(\d{1,3})\s*\)", command, re.IGNORECASE)]
+        chars = "".join(chr(number) for number in numbers if 32 <= number < 127)
+        if chars:
+            texts.append(chars)
+    return texts
 
 
 def _wrap(command: str, env: dict[str, str]) -> str:
