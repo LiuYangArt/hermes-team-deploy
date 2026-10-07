@@ -152,6 +152,10 @@ class LarkTopicAdapter(FeishuAdapter):
             return self._card_response(resolved_card)
 
     def _admit(self, sender: Any, message: Any):
+        # @所有人 is a room broadcast. It must not wake the bot or continue a topic.
+        # A separate @ of this bot in the same message still goes through.
+        if self._everyone_only(message):
+            return "everyone_not_mentioned"
         reason = super()._admit(sender, message)
         if reason != "group_policy_rejected":
             return reason
@@ -179,6 +183,9 @@ class LarkTopicAdapter(FeishuAdapter):
     async def _process_inbound_message(
         self, *, data: Any, message: Any, sender_id: Any, chat_type: str, message_id: str, is_bot: bool = False,
     ) -> None:
+        if self._everyone_only(message, chat_type=chat_type):
+            logger.info("[LarkTopics] ignored a group @everyone that did not mention the bot")
+            return
         sender = _sender_open_id(sender_id)
         mentioned = self._mentions_self(message)
         preview = _message_preview(message)
@@ -392,6 +399,31 @@ class LarkTopicAdapter(FeishuAdapter):
             self._topics.claim_speaker(self._app_id or "", chat_id, thread_id, sender)
         return super()._start_session_processing(event, session_key, **kwargs)
 
+    def _mentions_self(self, message: Any) -> bool:
+        if _addresses_everyone(message):
+            return self._explicitly_mentions_bot(message)
+        return super()._mentions_self(message)
+
+    def _everyone_only(self, message: Any, chat_type: Optional[str] = None) -> bool:
+        kind = chat_type if chat_type is not None else getattr(message, "chat_type", "p2p")
+        if kind == "p2p":
+            return False
+        return _addresses_everyone(message) and not self._explicitly_mentions_bot(message)
+
+    def _explicitly_mentions_bot(self, message: Any) -> bool:
+        mentions = [
+            item for item in (getattr(message, "mentions", None) or [])
+            if not _mention_is_everyone(item)
+        ]
+        if mentions and self._message_mentions_bot(mentions):
+            return True
+        normalized = self._normalize(
+            getattr(message, "message_type", "") or "",
+            getattr(message, "content", "") or "",
+            mentions,
+        )
+        return self._post_mentions_bot(normalized.mentions)
+
     def _mentions_other(self, message: Any) -> bool:
         """True when the message @s someone besides the bot. @ the bot as well still counts as calling the bot."""
         mentions = getattr(message, "mentions", None) or []
@@ -531,6 +563,22 @@ def _is_foreign_control(text: str) -> bool:
         return False
     command = parts[0].split("@", 1)[0].lower()
     return any(command == name or command.startswith(name) for name in _CONTROL_COMMANDS)
+
+
+def _mention_is_everyone(mention: Any) -> bool:
+    if str(getattr(mention, "key", "") or "") == "@_all":
+        return True
+    mention_id = getattr(mention, "id", None)
+    return isinstance(mention_id, str) and mention_id.strip() == "@_all"
+
+
+def _addresses_everyone(message: Any) -> bool:
+    """@_all is Lark's placeholder for @所有人. Typed words alone do not count."""
+    raw = getattr(message, "content", "") or ""
+    if isinstance(raw, str) and "@_all" in raw:
+        return True
+    mentions = getattr(message, "mentions", None) or []
+    return any(_mention_is_everyone(item) for item in mentions)
 
 
 def _sender_is_bot(sender: Any) -> bool:
