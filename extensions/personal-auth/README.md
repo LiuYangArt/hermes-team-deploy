@@ -52,3 +52,23 @@ Meegle CLI 1.0.23 的凭据密钥派生依赖系统主机名和 USER。Compose �
 更新、恢复和手动运行仍核验原创建者，权限管理仍由 lark-access 负责。改变个人授权服务范围需要重新创建任务；不允许仅改提示词偷偷扩大已声明范围。普通提醒可声明空列表。既有任务须由运维核实来源与授权后显式登记要求，不自动猜测并赋权。
 
 回归命令：`python3 -m unittest discover -s tests -p 'test_personal*.py' -v`。上线同时运行 `test_team_startup.py`，验证配置、授权目录和其他任务保持不变。
+
+## Meegle 建单免二次确认
+
+用户明确要求建单后，机器人直接校验字段、创建并回读单号和链接。只讨论方案或索要草稿不算建单授权。目标有歧义或缺少必要信息时仍需询问。返回结果不确定时，先查询核实，避免重复创建。
+
+运行配置使用 Hermes 官方 `command_allowlist`，仅添加以下两项。路径以容器内 `/opt/data` 为准；其他安装目录需对应调整。保留配置中已有条目。
+
+```yaml
+command_allowlist:
+  - 'env HOME=/opt/data/personal-auth/*/meegle-home USER=hermes meegle workitem create *'
+  - 'env HOME=/opt/data/personal-auth/*/meegle-home USER=hermes /usr/local/bin/meegle workitem create *'
+```
+
+这些条目只匹配个人授权扩展绑定账号后的单条建单命令。首次账号授权、退出后的重新登录以及 Meegle 服务端权限检查继续生效。更新、删除和其他命令不匹配；全局审批模式不变。复合 shell 命令仍由原有检查拒绝或审批。
+
+2026-10-09 的真实建单记录显示，安全扫描把正文中的中文句号 `U+3002` 判断为易混淆字符，触发审批。上述配置为已授权建单设置固定例外，避免正文文本造成重复批准。白名单属于运行配置，需随配置备份保存，不写进公共镜像。
+
+验证：`HERMES_CORE_PATH=/path/to/hermes-team python -m unittest discover -s tests -p 'test_meegle_create_approval.py' -v`。该测试只检查命令匹配和账号边界，不创建业务数据。云端运行验证及真实群聊结果记录在 Issue #35 和本地 `artifacts/issue-meegle-approval/`。
+
+本次已发布到云端 ASTRA。本机 hermi 未更新。云端原命令的审批检查直接通过，my bots 真实账号查询与建单规则回答通过；新增工作项的完整写入验收尚未执行。
