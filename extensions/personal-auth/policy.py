@@ -47,7 +47,7 @@ TURN_NOTE = (
 
 _ID = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,79}$")
 _SENSITIVE = re.compile(
-    r"personal-auth|\.meegle|credentials\.enc|MEEGLE_USER_ACCESS_TOKEN|"
+    r"personal-auth|team-meegle|\.meegle|credentials\.enc|MEEGLE_USER_ACCESS_TOKEN|"
     r"LARKSUITE_CLI_|MEEGLE_|\.lark-cli|\.local/share/lark-cli",
     re.IGNORECASE,
 )

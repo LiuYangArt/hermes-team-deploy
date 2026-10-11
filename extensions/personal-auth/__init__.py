@@ -24,6 +24,8 @@ def register(ctx) -> None:
     from .scheduled import register_cron
     ctx.register_tool(name="personal_auth", toolset="personal_auth", schema=SCHEMA, handler=_authorize)
     register_cron(ctx)
+    from .team_meegle import SCHEMA as TEAM_SCHEMA, handle as team_handle
+    ctx.register_tool(name="team_meegle", toolset="personal_auth", schema=TEAM_SCHEMA, handler=team_handle)
     try:
         outcome = retire_shared_meegle(_home())
         if outcome == "moved":
@@ -48,6 +50,8 @@ def _authorize(args, task_id="", **_kwargs):
     if platform != "feishu":
         return json.dumps({"ok": False, "error": "lark_request_required"})
     speaker = canonical((user_id, alt_id), load_links(_links_path()))
+    if not str(task_id).startswith("cron:") and args.get("service") == "meegle" and (_home() / "team-meegle" / "config.json").exists():
+        return json.dumps({"ok": False, "message": "交互 Meegle 已启用 PM 团队授权，请使用 team_meegle。"}, ensure_ascii=False)
     result = Authorization(_home()).handle(speaker, args.get("service"), args.get("action"), args.get("host", "meegle.com"))
     return json.dumps(result, ensure_ascii=False)
 
@@ -95,6 +99,9 @@ def _on_tool(tool_name="", args=None, task_id="", **_kwargs):
 def _on_turn(platform="", **_kwargs):
     if str(platform or "").strip().lower() != "feishu":
         return None
+    if (_home() / "team-meegle" / "config.json").exists():
+        from .team_meegle import NOTE
+        return {"context": NOTE + "Lark 本人任务仍使用 personal_auth，定时任务仍绑定创建者授权。"}
     return {"context": TURN_NOTE}
 
 

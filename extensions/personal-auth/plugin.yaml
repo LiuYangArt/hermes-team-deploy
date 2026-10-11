@@ -3,5 +3,6 @@ version: "0.3.0"
 description: "普通成员自行授权，核对身份后按人使用 Lark 与 Meegle。"
 provides_tools:
   - personal_auth
+  - team_meegle
   - cronjob_manage
 author: hermes-team

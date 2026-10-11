@@ -33,6 +33,7 @@ _LOCKED_DIRS = {"plugins", "pairing", "platforms"}
 class AccessConfig:
     auto_enroll: bool = True
     admins: tuple[str, ...] = ()
+    pm: str = ""
 
 
 def load_config(path: Path) -> AccessConfig:
@@ -49,7 +50,8 @@ def load_config(path: Path) -> AccessConfig:
         for item in data.get("admins") or []
         if isinstance(item, str) and item.strip()
     )
-    return AccessConfig(auto_enroll=_as_bool(data.get("auto_enroll", True)), admins=admins)
+    return AccessConfig(auto_enroll=_as_bool(data.get("auto_enroll", True)), admins=admins,
+                        pm=data.get("pm", "") if isinstance(data.get("pm", ""), str) else "")
 
 
 def is_admin(config: AccessConfig, *user_ids: str, aliases: tuple[str, ...] = ()) -> bool:

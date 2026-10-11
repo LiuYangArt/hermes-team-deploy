@@ -21,3 +21,7 @@
 仅管理员可通过 cronjob_manage 创建和管理任务，终端管理命令引导回该入口。后台每次工具调用从任务记录读取 personal_creator 并核对当前管理员名单；不使用触发者或模型传入的身份。合法创建者的任务在该次调用中使用 approve 审批范围，结束或异常后立即恢复；全局 cron_mode 不变。缺创建者或管理员资格撤销时拒绝执行。系统禁止命令、配置保护及个人账号隔离仍适用。
 
 验证：使用 Core 虚拟环境运行 pytest ../hermes-team-deploy/tests/test_scheduled_permissions.py。
+
+## PM 角色
+
+受保护配置可另设 `pm` 为一个 Lark open id，用于团队 Meegle 代办。它与 `admins` 独立，不授予机器人管理权限；仅配置 PM 不自动启用共享授权。业务配置、使用和执行边界见 [团队 Meegle 代办](../personal-auth/TEAM-MEEGLE.md)。
