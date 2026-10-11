@@ -25,9 +25,10 @@ class TeamTest(unittest.TestCase):
         self.cfg = {'default_project': 'project', 'default_type': 'demand', 'description_field': 'description'}
         team._write(self.root / 'team-meegle/config.json', self.cfg)
         team._write(self.root / 'lark-access/config.json', {'admins': ['ou_admin'], 'pm': 'ou_pm'})
-        self.person = {'id': 'ou_member', 'name': 'Member', 'message_id': 'om_first', 'chat_id': 'oc_chat'}
+        self.person = {'id': 'ou_member', 'name': 'Member', 'message_id': 'om_first', 'chat_id': 'oc_chat', 'thread_id': 'omt_first'}
         self.calls = []
-        self.broker = team.TeamMeegle(self.root, self.cli)
+        self.auth = types.SimpleNamespace(handle=lambda *a: {'ok': True, 'status': 'pending', 'verification_url': 'https://example.test/device', 'expires_in': 300})
+        self.broker = team.TeamMeegle(self.root, self.cli, self.auth)
         self.args = {'action': 'run', 'command': 'workitem.create', 'params': {'fields': [{'field_key': 'name', 'field_value': 'Test'}]}}
 
     def grant(self):
@@ -75,7 +76,7 @@ class TeamTest(unittest.TestCase):
     def test_pending_restarts_and_pm_resume_preserves_original(self):
         pending = self.broker.handle(self.args, self.person)
         self.assertEqual(pending['state'], 'awaiting_authorization')
-        self.assertFalse(self.calls)
+        self.assertEqual(pending['authorization']['notice_message_id'], 'om_notice')
         self.grant()
         result = team.TeamMeegle(self.root, self.cli).handle({'action': 'resume', 'request_id': pending['request_id']}, {**self.person, 'id': 'ou_pm'})
         self.assertEqual(result['requester']['id'], 'ou_member')
@@ -147,6 +148,60 @@ class TeamTest(unittest.TestCase):
         self.assertEqual(one['notice_message_id'], two['notice_message_id'])
         self.assertEqual(len(self.calls), 1)
         self.assertIn('<at user_id="ou_pm">PM</at>', self.calls[0][0][self.calls[0][0].index('--text')+1])
+
+    def test_same_authorization_notifies_each_topic(self):
+        self.broker.handle({'action': 'auth_start'}, self.person)
+        self.broker.handle({'action': 'auth_start'}, {**self.person, 'thread_id': 'omt_other'})
+        self.assertEqual(len(self.calls), 2)
+        self.assertNotEqual(self.calls[0][0][-3], self.calls[1][0][-3])
+
+    def test_qr_failure_retries_only_image_and_hides_url(self):
+        self.auth.handle = lambda *a: {'ok': True, 'status': 'pending', 'verification_url': 'https://example.test/device', 'expires_in': 300, 'qr_path': str(self.root / 'qr.png')}
+        failed = []
+        def runner(argv, *a, **kw):
+            if '--image' in argv and not failed:
+                failed.append(True)
+                raise team.AuthError('network', 'failure')
+            return self.cli(argv, *a, **kw)
+        broker = team.TeamMeegle(self.root, runner, self.auth)
+        first = broker.handle({'action': 'auth_start'}, self.person)
+        self.assertEqual(first['delivery_error'], 'network')
+        self.assertNotIn('verification_url', first)
+        self.assertNotIn('qr_path', first)
+        second = broker.handle({'action': 'auth_start'}, self.person)
+        self.assertEqual(second['qr_message_id'], 'om_notice')
+        self.assertEqual(sum('--text' in call[0] for call in self.calls), 1)
+
+    def test_auth_complete_resumes_only_authorized_current_topic(self):
+        pending = self.broker.handle(self.args, self.person)
+        other = self.broker.handle(self.args, {**self.person, 'message_id': 'om_other', 'thread_id': 'omt_other'})
+        self.grant()
+        self.auth.handle = lambda *a: {'ok': True, 'status': 'authorized'}
+        with patch.object(team, 'has_lark_grant', return_value=True):
+            result = self.broker.handle({'action': 'auth_complete'}, {**self.person, 'id': 'ou_pm', 'message_id': 'om_pm'})
+        self.assertEqual([r['request_id'] for r in result['resumed_requests']], [pending['request_id']])
+        self.assertEqual(result['resumed_requests'][0]['requester']['id'], 'ou_member')
+        self.assertEqual(team._read(self.root / 'team-meegle/requests' / (other['request_id'] + '.json'))['state'], 'awaiting_authorization')
+        self.assertEqual(sum(c[0][:3] == ['meegle', 'workitem', 'create'] for c in self.calls), 1)
+
+    def test_inspect_without_login_notifies_pm(self):
+        result = self.broker.handle({'action': 'inspect', 'command': 'workitem.create'}, self.person)
+        self.assertEqual(result['authorization']['notice_message_id'], 'om_notice')
+        self.assertEqual(len(self.calls), 1)
+
+    def test_inspect_resume_and_continued_create_keep_original_member(self):
+        pending = self.broker.handle({'action': 'inspect', 'command': 'workitem.create'}, self.person)
+        self.grant()
+        self.auth.handle = lambda *a: {'ok': True, 'status': 'authorized'}
+        pm = {**self.person, 'id': 'ou_pm', 'message_id': 'om_pm'}
+        with patch.object(team, 'has_lark_grant', return_value=True), patch.object(team, 'inspect_cli', return_value={'definition': 'fields'}):
+            result = self.broker.handle({'action': 'auth_complete'}, pm)
+        self.assertEqual(result['resumed_requests'][0]['request_id'], pending['request_id'])
+        created = self.broker.handle({**self.args, 'request_id': pending['request_id']}, pm)
+        self.assertEqual(created['requester']['id'], 'ou_member')
+        with self.assertRaises(ValueError):
+            self.broker.handle({'action': 'run', 'command': 'workitem.update', 'params': {}, 'request_id': pending['request_id']}, pm)
+        self.assertEqual(sum(c[0][0] == 'lark-cli' for c in self.calls), 1)
 
 
 if __name__ == '__main__':

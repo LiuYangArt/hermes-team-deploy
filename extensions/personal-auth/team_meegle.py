@@ -15,12 +15,12 @@ from .team_policy import validate_operation, ORDINARY_COMMANDS, WRITES, DOMAINS
 
 SCHEMA = {
     'name': 'team_meegle',
-    'description': '团队 Meegle 代办。请求者由当前 Lark 消息绑定，执行账号为配置的 PM。普通成员只开单、添加评论、修改状态及必要读取；PM 不限业务操作。缺授权使用 auth_start，扫码后 auth_complete，再 resume 原请求。默认目标由受保护配置提供。不得改用 terminal 绕过。',
+    'description': '团队 Meegle 代办。请求者由当前 Lark 消息绑定，执行账号为配置的 PM。普通成员只开单、添加评论、修改状态及必要读取；PM 不限业务操作。缺授权自动在 Lark 原话题通知 PM；扫码后 auth_complete 恢复原请求。默认目标由受保护配置提供。不得改用 terminal 绕过。',
     'parameters': {'type': 'object', 'properties': {
         'action': {'type': 'string', 'enum': ['status', 'inspect', 'run', 'auth_start', 'auth_complete', 'resume']},
         'command': {'type': 'string', 'description': '点号业务命令，例如 workitem.create、comment.add、workflow.transition-state'},
         'params': {'type': 'object', 'description': 'CLI 参数，用 project-key、work-item-id 等短横线名称；不能含 --params、--set 或账号配置。'},
-        'request_id': {'type': 'string', 'description': 'resume 使用工具已返回的请求编号，保留原请求成员。'},
+        'request_id': {'type': 'string', 'description': '恢复或继续原请求时使用工具已返回的请求编号。PM 授权后继续 inspect/run 必须携带原编号，保留原请求成员。'},
     }, 'required': ['action'], 'additionalProperties': False},
 }
 
@@ -32,8 +32,9 @@ NOTE = (
     '未指定池子采用配置的默认目标，明确指定其他池子先查 meta-types。'
     '元数据、必填字段和可用状态都通过 team_meegle 查询。不得从个人终端、脚本或其他工具绕过。'
     '明确开单、评论、改状态后直接执行并回读，不再次索要相同写入确认。'
-    '缺授权先 auth_start，工具在原消息回复中 @PM；等待本人扫码，随后 auth_complete 并 resume 原 request_id。'
+    '缺授权时工具自动在原话题 @PM 并发送二维码，不要求成员扫码或转发链接。PM 扫码后需在原话题 @机器人回复“已授权”，再 auth_complete；已保存操作自动恢复，不重复提交。'
     'PM 扫码不改变原请求人。超时或结果不确定时只回读核实，不能重复提交。'
+    'auth_complete 返回恢复结果后，后续 inspect/run 必须携带对应 request_id；尤其 PM 确认授权后，不能把原成员的业务请求当成 PM 的新请求。'
 )
 
 
@@ -126,6 +127,18 @@ class TeamMeegle:
             if outcome.get('ok') and person['message_id'] != record['requester']['message_id']:
                 self._notify_completed(record, cfg)
             return outcome
+        if args.get('request_id'):
+            request_id = args['request_id']
+            if not isinstance(request_id, str) or not re.fullmatch(r'[a-f0-9]{32}', request_id):
+                raise ValueError('无效请求编号。')
+            previous = _read(self.store / 'requests' / f'{request_id}.json')
+            owner = previous.get('requester', {})
+            if (not owner or previous.get('credential_owner') != pm
+                    or owner.get('chat_id') != person['chat_id']
+                    or (owner.get('thread_id') or owner.get('message_id')) != (person.get('thread_id') or person['message_id'])
+                    or person['id'] not in {pm, owner['id']}):
+                raise ValueError('只能由原请求人或 PM 在原话题继续请求。')
+            person = owner
         command, params = args.get('command'), args.get('params', {})
         if action == 'inspect':
             if not isinstance(command, str) or not re.fullmatch(r'[a-z]+\.\+?[a-z][a-z-]*', command):
@@ -133,7 +146,13 @@ class TeamMeegle:
             if command.split('.')[0] not in DOMAINS or (person['id'] != pm and command not in ORDINARY_COMMANDS):
                 raise ValueError('此操作不在当前成员的权限内。')
             if not has_meegle_grant(self.root, pm):
-                return {'ok': False, 'error': 'pm_authorization_required', 'message': '请用 auth_start 通知 PM 授权。'}
+                digest = json.dumps([pm, person['id'], person['message_id'], 'inspect', command])
+                record = {'id': hashlib.sha256(digest.encode()).hexdigest()[:32],
+                          'requester': person, 'credential_owner': pm, 'action': 'inspect',
+                          'command': command, 'params': {}, 'state': 'awaiting_authorization',
+                          'created_at': time.time()}
+                self._save(record)
+                return self._execute(record, cfg)
             return self._call(['inspect', command], cfg)
         if action != 'run':
             raise ValueError('无效操作。')
@@ -160,6 +179,13 @@ class TeamMeegle:
     def _execute(self, record, cfg):
         pm = cfg['pm']
         if not has_meegle_grant(self.root, pm):
+            receipt = self._receipt(record)
+            receipt['authorization'] = self._authorize('auth_start', record['requester'], cfg)
+            return receipt
+        if record.get('action') == 'inspect':
+            result = self._call(['inspect', record['command']], cfg)
+            record.update(state='succeeded', result=result, finished_at=time.time())
+            self._save(record)
             return self._receipt(record)
         command, params = validate_operation(record['command'], record['params'], is_pm=record['requester']['id'] == pm, config=cfg, requester=record['requester'])
         # Before a write, distinguish a revoked login from a failed/uncertain business request.
@@ -230,7 +256,7 @@ class TeamMeegle:
 
     def _receipt(self, record):
         state = record['state']
-        message = {'awaiting_authorization': '原请求已保存。请 auth_start 通知 PM 扫码，完成后用此 request_id 恢复，身份仍是原请求人。',
+        message = {'awaiting_authorization': '原请求已保存，等待 PM 在 Lark 完成授权；通知送达情况见 authorization。身份仍是原请求人。',
                    'executing': '之前执行尚无确定结果，禁止重复提交，请先回读核实。',
                    'uncertain': '操作结果不确定，禁止重复提交，请先回读核实。',
                    'succeeded': '操作已返回成功，请依据 result/readback 给出实际单号和链接。'}[state]
@@ -252,30 +278,53 @@ class TeamMeegle:
         result['credential_owner'] = pm
         result['service'] = service
         if result.get('status') == 'pending':
-            result['message'] = '请配置的 PM 本人扫码。普通成员无需授权。完成后 auth_complete，再恢复原请求。'
-            notice = self.store / 'notice.json'
+            result['message'] = '等待 PM 在本话题扫码；完成后请 PM 在本话题 @机器人回复“已授权”。普通成员无需登录或转发。'
+            scope = [person['chat_id'], person.get('thread_id') or person['message_id']]
+            fingerprint = hashlib.sha256(json.dumps([scope, result['verification_url']]).encode()).hexdigest()
+            notice = self.store / 'notices' / (fingerprint + '.json')
             previous = _read(notice)
-            fingerprint = hashlib.sha256(result['verification_url'].encode()).hexdigest()
-            if previous.get('fingerprint') != fingerprint:
-                bot_env = environment(self.root, 'lark', self.root / '.lark-cli')
-                bot_env['LARKSUITE_CLI_CONFIG_DIR'] = str(self.root / '.lark-cli')
-                bot_env['LARKSUITE_CLI_DATA_DIR'] = str(self.root / '.local' / 'share')
-                text = f'<at user_id="{pm}">{cfg.get("pm_name", "PM")}</at> 团队 Meegle 需要你本人完成 {service} 授权：\n{result["verification_url"]}\n有效期 {result["expires_in"]} 秒。完成后在这里回复“已授权”。'
-                sent = self.run(['lark-cli', 'im', '+messages-reply', '--message-id', person['message_id'], '--reply-in-thread', '--text', text, '--as', 'bot', '--idempotency-key', 'pm-auth-' + fingerprint[:32], '--format', 'json'], bot_env, self.root)
-                message_id = _item_id(sent, ('message_id',))
-                if not message_id:
-                    raise ValueError('授权通知没有返回消息编号，尚未确认送达。')
-                _write(notice, {'fingerprint': fingerprint, 'message_id': message_id, 'expires_at': time.time() + result['expires_in']})
+            bot_env = environment(self.root, 'lark', self.root / '.lark-cli')
+            bot_env['LARKSUITE_CLI_CONFIG_DIR'] = str(self.root / '.lark-cli')
+            bot_env['LARKSUITE_CLI_DATA_DIR'] = str(self.root / '.local' / 'share')
+            try:
+                if not previous.get('message_id'):
+                    text = f'<at user_id="{pm}">{cfg.get("pm_name", "PM")}</at> 团队 Meegle 需要你本人完成 {service} 授权：\n{result["verification_url"]}\n有效期 {result["expires_in"]} 秒。完成后请在本话题 @机器人回复“已授权”，我会继续原请求。其他成员无需登录。'
+                    sent = self.run(['lark-cli', 'im', '+messages-reply', '--message-id', person['message_id'], '--reply-in-thread', '--text', text, '--as', 'bot', '--idempotency-key', 'pm-auth-' + fingerprint[:32], '--format', 'json'], bot_env, self.root)
+                    message_id = _item_id(sent, ('message_id',))
+                    if not message_id:
+                        raise AuthError('notice_unconfirmed', '授权通知未返回消息编号。')
+                    previous.update(message_id=message_id)
+                    _write(notice, previous)
                 qr = result.get('qr_path')
-                if qr:
+                if qr and not previous.get('qr_message_id'):
                     path = Path(qr)
-                    self.run(['lark-cli', 'im', '+messages-reply', '--message-id', person['message_id'], '--reply-in-thread', '--image', path.name, '--as', 'bot', '--idempotency-key', 'pm-qr-' + fingerprint[:32], '--format', 'json'], bot_env, path.parent)
-                result['notice_message_id'] = message_id
-            else:
-                result['notice_message_id'] = previous.get('message_id')
-                result['message'] += '同一授权已通知 PM，不重复 @。'
+                    sent = self.run(['lark-cli', 'im', '+messages-reply', '--message-id', person['message_id'], '--reply-in-thread', '--image', path.name, '--as', 'bot', '--idempotency-key', 'pm-qr-' + fingerprint[:32], '--format', 'json'], bot_env, path.parent)
+                    message_id = _item_id(sent, ('message_id',))
+                    if not message_id:
+                        raise AuthError('notice_unconfirmed', '二维码未返回消息编号。')
+                    previous['qr_message_id'] = message_id
+                    _write(notice, previous)
+            except AuthError as exc:
+                result['delivery_error'] = exc.kind
+                result['message'] = 'Lark 授权通知未完整送达，请重试 auth_start；原请求仍保留，不要求成员转发链接。'
+            result['notice_message_id'] = previous.get('message_id')
+            result['qr_message_id'] = previous.get('qr_message_id')
+            # The transport owns delivery; the model must not copy an authorization link elsewhere.
+            result.pop('verification_url', None)
+            result.pop('qr_path', None)
         elif result.get('status') == 'authorized':
-            result['pending_requests'] = [{'request_id': r['id'], 'requester': r['requester']} for p in (self.store / 'requests').glob('*.json') if (r := _read(p)) and r.get('state') == 'awaiting_authorization' and r['requester']['chat_id'] == person['chat_id'] and r['credential_owner'] == pm]
+            pending = [r for p in (self.store / 'requests').glob('*.json')
+                       if (r := _read(p)) and r.get('state') == 'awaiting_authorization'
+                       and r['credential_owner'] == pm
+                       and r['requester']['chat_id'] == person['chat_id']
+                       and (r['requester'].get('thread_id') or r['requester']['message_id']) == (person.get('thread_id') or person['message_id'])
+                       and person['id'] in {pm, r['requester']['id']}]
+            result['resumed_requests'] = []
+            for record in sorted(pending, key=lambda r: r['created_at']):
+                outcome = self._execute(record, cfg)
+                result['resumed_requests'].append(outcome)
+            result['message'] = 'PM 授权已保存；已恢复本话题原请求。按结果答复，后续 inspect/run 携带对应 request_id 保留原请求人，不重复提交。'
+
         return result
 
 
@@ -300,5 +349,4 @@ def _item_id(value, keys=('work_item_id', 'workItemId', 'id')):
             if found:
                 return found
     return None
-
 
