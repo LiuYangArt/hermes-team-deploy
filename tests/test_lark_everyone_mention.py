@@ -121,6 +121,19 @@ class EveryoneMentionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.continued, [])
         self.assertFalse(self.adapter._mentions_self(message))
 
+    def test_everyone_plus_colleagues_does_not_address_bot(self):
+        colleague = SimpleNamespace(
+            key="@_user_1", name="Colleague",
+            id=SimpleNamespace(open_id="ou_colleague", user_id=""),
+        )
+        message = _message('{"text":"@_user_1 @_all meeting notes"}', [_everyone(), colleague])
+        self.assertEqual(
+            self.adapter._admit(SimpleNamespace(sender_id="ou_a"), message),
+            "everyone_not_mentioned",
+        )
+        self.assertFalse(self.adapter._mentions_self(message))
+        self.assertEqual(self.continued, [])
+
     def test_everyone_in_mentions_without_text_placeholder_is_dropped(self):
         message = _message('{"text":"开会"}', [_everyone()])
         self.assertEqual(
