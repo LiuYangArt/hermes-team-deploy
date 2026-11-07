@@ -53,3 +53,13 @@ Lark 已有长连接但没有订阅 `im.message.receive_v1` 时，@机器人也�
 云端当前默认模型为 `gpt-5.6-sol`，`agent.reasoning_effort` 为 `medium`，没有按模型覆盖思考强度。仅修改持久 `data/config.yaml` 的这两项，文件权限保持 0640；供应商、凭据和其余配置保持不变。原配置保存在受保护的 `data/backups/config-model-20261012T120314Z.yaml`。
 
 执行 `hermesctl restart` 后预检通过，单次 `hermes chat` 返回指定口令。等待日志确认 Lark websocket 已连接后，my bots 真实 @ 收到 ASTRA 回答并回读应用身份与同话题回复。启动重连前的一条测试没有形成话题，因此未计入成功验收。证据：`artifacts/astra-model-20261012/`。Core、本机 hermi 与任务包均未修改。
+
+## 2026-11-07 ASTRA 开放私聊（#38）
+
+用户要求开放团队成员私聊。云端受保护 `bot.env` 的 `FEISHU_ALLOW_ALL_USERS` 已设为 `true`。允许名单保留，群策略仍为 `open`，管理员名单和个人授权规则不变。本次没有改变 Lark 应用的可用范围；开关放行能够向该应用发送私聊的真人，不额外按团队花名册筛选。
+
+修改前已备份到服务器 `data/backups/astra-dm-20261107T082336Z/`，备份目录权限为 0700，`bot.env` 保持 0600。执行 `hermesctl recreate` 后，运行镜像 ID 不变；68 个受保护配置、任务代码和扩展文件的哈希一致。未发布 Core、扩展或任务，也未修改本机 hermi。动态会话和调度状态不作为静态文件哈希保证。
+
+`hermesctl preflight` 通过，实际网关进程的私聊开关已回读。运行代码与临时状态验证：名单外成员的私聊通过接入和网关授权；普通成员仍不能修改技能、长期记忆、模型或定时任务；新群聊请求仍须点名，只提及所有人仍拒绝，已有话题接话规则不变。Lark 长连接重新建立，单次模型调用返回验收口令。证据保存在忽略目录 `artifacts/astra-dm-20261107/`。
+
+真实普通成员私聊尚未验收，未获得具体私聊测试授权，未主动给成员发消息。本机用户登录已过期，现有浏览器没有 Lark 页面，也未发现运行中的 Lark 客户端；本轮没有重做真实群聊回归。配置生效与运行规则验证不替代真实收发，Issue #38 保持 Open / Pending Verification。

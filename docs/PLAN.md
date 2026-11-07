@@ -308,3 +308,9 @@
 - [x] 云端受保护配置从 `gpt-5.6-luna / high` 改为 `gpt-5.6-sol / medium`，备份后只修改两项，其他配置不变。
 - [x] `hermesctl restart`、`preflight`、单次模型调用通过；Lark 重连后 my bots 真实 @ 收到验收口令，已回读 ASTRA 应用身份和回复编号。
 - [x] Core、扩展、任务包和本机 hermi 未改。证据在忽略目录 `artifacts/astra-model-20261012/`。
+
+## 2026-11-07 ASTRA 开放私聊（Deploy #38）
+
+- [x] 云端 `FEISHU_ALLOW_ALL_USERS=true` 已备份、重载并从网关进程回读。沿用当前镜像，68 个受保护配置、任务代码和扩展文件未变；Core、本机 hermi 未改。
+- [x] 运行代码验证名单外成员私聊接入与网关授权通过，管理权限和群聊点名规则保留。预检、Lark 重连及单次模型调用通过。
+- [ ] 真实普通成员私聊收发未验收，未获具体私聊测试授权。现有用户登录过期，本轮也未重做真实群聊回归；#38 保持 Open / Pending Verification。说明见 `docs/IT-INSTALL.md`，证据在 `artifacts/astra-dm-20261107/`。
