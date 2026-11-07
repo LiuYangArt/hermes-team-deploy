@@ -110,6 +110,32 @@ class TeamTest(unittest.TestCase):
         result = self.broker.handle({'action': 'run', 'command': 'workitem.update', 'params': {'project-key': 'p', 'work-item-id': '1', 'fields': []}}, {**self.person, 'id': 'ou_pm'})
         self.assertTrue(result['ok'])
 
+    def test_pm_keeps_business_permissions_in_private_chat(self):
+        self.grant()
+        person = {**self.person, 'id': 'ou_pm', 'chat_id': 'oc_private', 'thread_id': ''}
+        status = self.broker.handle({'action': 'status'}, person)
+        self.assertTrue(status['is_pm'])
+        result = self.broker.handle({
+            'action': 'run', 'command': 'workitem.update',
+            'params': {'project-key': 'p', 'work-item-id': '1', 'fields': []},
+        }, person)
+        self.assertTrue(result['ok'])
+        self.assertEqual(result['requester']['id'], 'ou_pm')
+        self.assertEqual(result['requester']['thread_id'], '')
+
+    def test_private_chat_does_not_grant_pm_permissions(self):
+        self.grant()
+        for speaker in ('ou_member', 'ou_admin'):
+            with self.subTest(speaker=speaker):
+                person = {**self.person, 'id': speaker, 'chat_id': 'oc_private', 'thread_id': ''}
+                self.assertFalse(self.broker.handle({'action': 'status'}, person)['is_pm'])
+                with self.assertRaises(ValueError):
+                    self.broker.handle({
+                        'action': 'run', 'command': 'workitem.update',
+                        'params': {'project-key': 'p', 'work-item-id': '1', 'fields': []},
+                    }, person)
+        self.assertFalse(self.calls)
+
     def test_comment_and_transition_are_not_owner_limited(self):
         self.grant()
         for command, params in [('comment.add', {'work-item-id': 'others', 'content': 'hello'}), ('workflow.transition-state', {'work-item-id': 'others', 'transition-id': 'next'})]:
