@@ -315,3 +315,9 @@
 - [x] 运行代码验证名单外成员私聊接入与网关授权通过，管理权限和群聊点名规则保留。预检、Lark 重连及单次模型调用通过。
 - [x] PM 按本人账号识别，私聊保留既有 PM 业务权限。云端临时状态验证本人账号及别名；新增 PM 私聊与普通成员拒绝测试，团队代办测试共 20 项通过。未修改运行代码或角色配置。
 - [ ] 真实普通成员私聊收发未验收，未获具体私聊测试授权。现有用户登录过期，本轮也未重做真实群聊回归；#38 保持 Open / Pending Verification。说明见 `docs/IT-INSTALL.md`，证据在 `artifacts/astra-dm-20261107/`。
+
+## 2026-11-08 ASTRA 默认模型（Deploy #39）
+
+- [x] 云端受保护配置的默认模型改为 `gpt-6.1-sol`，思考强度保持 `medium`。修改前已备份，其他配置及 33 个受保护文件不变；Core、扩展、任务包和本机 hermi 未改。
+- [x] `hermesctl restart`、`preflight` 和单次模型调用通过。网关已识别新模型；Lark 首次连接超时，自动重连后 websocket 连接成功。
+- [ ] my bots 真实群聊回归未完成，用户登录已过期；需登录后由 agent 发送测试并回读。#39 保持 Open / Pending Verification。说明见 `docs/IT-INSTALL.md`，证据在 `artifacts/astra-model-20261108/`。

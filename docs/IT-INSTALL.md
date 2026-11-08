@@ -50,7 +50,7 @@ Lark 已有长连接但没有订阅 `im.message.receive_v1` 时，@机器人也�
 
 ## 2026-10-12 ASTRA 默认模型调整（#37）
 
-云端当前默认模型为 `gpt-5.6-sol`，`agent.reasoning_effort` 为 `medium`，没有按模型覆盖思考强度。仅修改持久 `data/config.yaml` 的这两项，文件权限保持 0640；供应商、凭据和其余配置保持不变。原配置保存在受保护的 `data/backups/config-model-20261012T120314Z.yaml`。
+云端当时默认模型改为 `gpt-5.6-sol`，`agent.reasoning_effort` 为 `medium`，没有按模型覆盖思考强度。仅修改持久 `data/config.yaml` 的这两项，文件权限保持 0640；供应商、凭据和其余配置保持不变。原配置保存在受保护的 `data/backups/config-model-20261012T120314Z.yaml`。
 
 执行 `hermesctl restart` 后预检通过，单次 `hermes chat` 返回指定口令。等待日志确认 Lark websocket 已连接后，my bots 真实 @ 收到 ASTRA 回答并回读应用身份与同话题回复。启动重连前的一条测试没有形成话题，因此未计入成功验收。证据：`artifacts/astra-model-20261012/`。Core、本机 hermi 与任务包均未修改。
 
@@ -65,3 +65,11 @@ Lark 已有长连接但没有订阅 `im.message.receive_v1` 时，@机器人也�
 真实普通成员私聊尚未验收，未获得具体私聊测试授权，未主动给成员发消息。本机用户登录已过期，现有浏览器没有 Lark 页面，也未发现运行中的 Lark 客户端；本轮没有重做真实群聊回归。配置生效与运行规则验证不替代真实收发，Issue #38 保持 Open / Pending Verification。
 
 PM 权限按本人账号识别，不依赖群或话题。云端实际身份与角色规则在临时状态中验证：没有话题编号的私聊仍识别已配置 PM，本人账号及已有别名均通过；PM 业务修改权限保留，普通成员不获得该权限，PM 与管理员仍是独立角色。新增私聊回归测试后，`python3 -m unittest discover -s tests -p test_team_meegle.py -v` 共 20 项通过。没有修改角色配置或运行代码，也没有实际写入 Meegle；真实 PM 私聊收发仍待验收。
+
+## 2026-11-08 ASTRA 默认模型调整（#39）
+
+云端默认模型已改为 `gpt-6.1-sol`，思考强度保持 `medium`。本次只改受保护 `data/config.yaml` 的 `model.default`。其他配置逐项比对不变，文件权限保持 0640，另有 33 个受保护文件哈希不变。修改前的备份在服务器 `data/backups/astra-model-20261108T140205Z/`。Core、扩展、任务包和本机 hermi 未改。
+
+执行 `hermesctl restart` 后，`hermesctl preflight` 通过。网关日志已确认新模型；`hermes chat -Q --oneshot --max-turns 2 --run-budget 90` 返回验收口令，退出码为 0。Lark 首次连接超时，自动重连后已确认 websocket 连接成功，未修改连接超时或权限设置。
+
+真实群聊回归未完成：本机用户登录已过期，现有浏览器无 Lark 标签页，也未发现运行中的 Lark 客户端。需完成用户登录后，由 agent 在已授权 my bots 群发送测试并回读 ASTRA 回复。单次模型调用不替代这项验收；#39 保持 Open / Pending Verification。证据在本机忽略目录 `artifacts/astra-model-20261108/`。
