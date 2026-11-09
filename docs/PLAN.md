@@ -320,4 +320,4 @@
 
 - [x] 云端受保护配置的默认模型改为 `gpt-6.1-sol`，思考强度保持 `medium`。修改前已备份，其他配置及 33 个受保护文件不变；Core、扩展、任务包和本机 hermi 未改。
 - [x] `hermesctl restart`、`preflight` 和单次模型调用通过。网关已识别新模型；Lark 首次连接超时，自动重连后 websocket 连接成功。
-- [ ] my bots 真实群聊回归未完成，用户登录已过期；需登录后由 agent 发送测试并回读。#39 保持 Open / Pending Verification。说明见 `docs/IT-INSTALL.md`，证据在 `artifacts/astra-model-20261108/`。
+- [x] 2026-11-09 用户授权结果已成功收到，登录状态与实际用户接口均通过。my bots 真实点名测试得到 ASTRA 指定口令，已核对应用身份、请求和回复编号及同一话题；云端日志确认使用 `gpt-6.1-sol`，配置思考强度仍为 `medium`。#39 验收完成。授权页面 `20001` 的具体原因未证实，不把页面报错当成授权失败。说明见 `docs/IT-INSTALL.md`，证据在 `artifacts/astra-model-20261108/`。
