@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from event_service import Service, validate_event
 from queue_store import QueueStore
-from runner import notify, parse_result, related_ids, verify_target
+from runner import cli, notify, parse_result, related_ids, verify_pm, verify_target
 
 
 class QueueTests(unittest.TestCase):
@@ -54,7 +54,8 @@ class EventTests(unittest.TestCase):
     def setUp(self):
         self.event = {"repository": "owner/repo", "number": 12,
                       "source_id": "123", "github_url": "https://github.com/owner/repo/issues/12"}
-        self.config = {"routes": {"owner/repo": "chat"}}
+        self.config = {"repositories": ["owner/repo"], "notification_chat": "chat",
+                       "pm_mention_user_id": "ou_pm"}
 
     def test_only_allowlisted_repo_and_canonical_url(self):
         self.assertEqual(validate_event(self.event, self.config), self.event)
@@ -145,17 +146,21 @@ class EventTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             config = dict(self.config, review_chat="review", output_dir=directory)
             data = {"event": self.event, "result": {"decision": "manual_review", "reason": "check"},
-                    "chat_id": "review", "uuid": "stable"}
-            content = "待人工分诊 #12\n" + self.event["github_url"] + "\ncheck"
+                    "chat_id": "chat", "uuid": "stable"}
+            content = '待人工分诊 #12\n<at user_id="ou_pm">77</at>\nGitHub: ' + self.event["github_url"] + "\ncheck"
             response = {"data": {"messages": [{"message_id": "sent", "content": content}]}}
             with patch("runner.cli", side_effect=[
                     {"data": {"message_id": "sent"}}, RuntimeError("readback offline")]):
                 with self.assertRaises(RuntimeError):
                     notify(config, data)
-            with patch("runner.cli", return_value=response) as command:
+            raw = {"data": {"items": [{"message_id": "sent", "chat_id": "chat",
+                "mentions": [{"id": "ou_pm", "key": "@_user_1"}],
+                "body": {"content": json.dumps({"text": content.replace(
+                    '<at user_id="ou_pm">77</at>', "@_user_1")})}}]}}
+            with patch("runner.cli", side_effect=[response, raw]) as command:
                 self.assertEqual(notify(config, data), {"message_id": "sent"})
-                self.assertEqual(command.call_count, 1)
-                self.assertIn("+messages-mget", command.call_args.args[0])
+                self.assertEqual(command.call_count, 2)
+                self.assertIn("+messages-mget", command.call_args_list[0].args[0])
 
     def test_delivery_retry_uses_persisted_target(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -177,6 +182,80 @@ class EventTests(unittest.TestCase):
                 self.assertEqual(call.call_count, 1)
             self.assertEqual(service.queue.get("one")["result"]["message_id"], "receipt")
             service.lock.close()
+
+    def test_every_decision_uses_one_notification_chat(self):
+        for decision in ("classified", "manual_review"):
+            with self.subTest(decision=decision), tempfile.TemporaryDirectory() as directory:
+                service = Service(dict(self.config, state_dir=directory))
+                self.addCleanup(service.lock.close)
+                service.queue.enqueue("one", self.event)
+                with patch.object(service, "command", side_effect=[
+                        {"decision": decision}, {"message_id": "sent"}]) as command:
+                    service.process(service.queue.claim())
+                self.assertEqual(command.call_args.args[1]["chat_id"], "chat")
+
+    def test_final_failure_alert_uses_same_chat(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service = Service(dict(self.config, state_dir=directory))
+            self.addCleanup(service.lock.close)
+            row = {"key": "one", "payload": self.event, "attempts": 3}
+            def alert(mode, data):
+                service.stop.set()
+                self.assertEqual(data["chat_id"], "chat")
+                return {"message_id": "sent"}
+            with patch.object(service.queue, "claim", return_value=row), \
+                    patch.object(service.queue, "fail"), \
+                    patch.object(service, "process", side_effect=RuntimeError("offline")), \
+                    patch.object(service, "command", side_effect=alert):
+                service.worker()
+
+    def test_other_destination_rejected_before_send(self):
+        with patch("runner.cli") as command:
+            for chat in ("mybots", "other", ""):
+                with self.assertRaisesRegex(ValueError, "Destination"):
+                    notify(self.config, {"event": self.event,
+                        "result": {"decision": "manual_review"}, "chat_id": chat})
+            command.assert_not_called()
+
+    def test_plain_name_or_wrong_chat_is_not_verified_as_mention(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = dict(self.config, output_dir=directory)
+            data = {"event": self.event, "result": {"decision": "manual_review", "reason": "check"},
+                    "chat_id": "chat", "uuid": "stable"}
+            rendered = {"data": {"messages": [{"message_id": "sent", "content": "@77"}]}}
+            for chat, mentions in (("chat", []), ("wrong", [{"id": "ou_pm"}]),
+                                   ("chat", [{"id": "ou_someoneelse"}])):
+                raw = {"data": {"items": [{"message_id": "sent", "chat_id": chat,
+                                           "mentions": mentions,
+                                           "body": {"content": '{"text":"@77"}'}}]}}
+                responses = ([{"data": {"message_id": "sent"}}]
+                             if not (Path(directory) / "notification-stable.json").exists()
+                             else [])
+                with self.subTest(chat=chat, mentions=mentions), \
+                        patch("runner.cli", side_effect=responses + [rendered, raw]):
+                    with self.assertRaisesRegex(ValueError, "mention/chat"):
+                        notify(config, data)
+
+    def test_pm_exact_account_and_inactive_or_ambiguous_rejected(self):
+        config = {"project_key": "demo", "pm_follower_userkey": "12345",
+                  "pm_email": "pm@example.test"}
+        user = {"user_key": "12345", "status": "activated", "email": "pm@example.test"}
+        with patch("runner.cli", return_value=[user]) as command:
+            self.assertEqual(verify_pm(config, "creator"), "12345")
+            args = command.call_args.args[0]
+            self.assertEqual(json.loads(args[args.index("--params") + 1])["user_keys"],
+                             ["12345"])
+        for users in ([], [user, user], [dict(user, status="deactivated")],
+                      [dict(user, user_key="54321")], [dict(user, email="wrong@test")]):
+            with self.subTest(users=users), patch("runner.cli", return_value=users):
+                with self.assertRaisesRegex(ValueError, "exact identity"):
+                    verify_pm(config, "creator")
+
+    def test_cli_accepts_meegle_user_list(self):
+        from subprocess import CompletedProcess
+        with patch("runner.subprocess.run",
+                   return_value=CompletedProcess([], 0, '[{"user_key":"12345"}]', "")):
+            self.assertEqual(cli(["meegle"]), [{"user_key": "12345"}])
 
     def test_http_ack_follows_commit_and_rejects_conflicting_source(self):
         with tempfile.TemporaryDirectory() as directory:

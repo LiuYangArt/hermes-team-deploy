@@ -22,7 +22,7 @@ def validate_event(value, config):
     if not isinstance(value, dict):
         raise ValueError("Expected object")
     repo = value.get("repository")
-    if repo not in config["routes"]:
+    if repo not in config["repositories"]:
         raise ValueError("Repository not allowed")
     number = value.get("number")
     source = str(value.get("source_id", ""))
@@ -74,9 +74,7 @@ class Service:
         if result["decision"] == "filtered":
             self.queue.finish(row["key"], result)
             return
-        target = self.config["routes"][payload["repository"]]
-        if result["decision"] != "classified":
-            target = self.config["review_chat"]
+        target = self.config["notification_chat"]
         receipt = self.command("notify", {
             "event": payload, "result": result, "chat_id": target,
             "uuid": hashlib.sha256(row["key"].encode()).hexdigest()[:32],
@@ -102,7 +100,7 @@ class Service:
                                 "event": row["payload"],
                                 "result": {"decision": "manual_review",
                                            "reason": "自动处理失败，事件已保留。请检查分诊服务的失败记录。"},
-                                "chat_id": self.config["review_chat"],
+                                "chat_id": self.config["notification_chat"],
                                 "uuid": hashlib.sha256(
                                     (row["key"] + ":failed").encode()).hexdigest()[:32],
                             })
