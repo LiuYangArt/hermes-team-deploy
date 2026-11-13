@@ -73,7 +73,8 @@ class EventTests(unittest.TestCase):
             parse_result('{"decision":"success"}')
 
     def test_pool_link_or_unverified_owner_never_passes(self):
-        config = {"simple_name": "demo", "feature_type": "feature"}
+        config = {"simple_name": "demo", "feature_type": "feature",
+                  "pm_follower_userkey": "follower"}
         result = {"decision": "classified", "classification": "bug", "target_id": "123"}
         with self.assertRaises(ValueError):
             verify_target(config, "creator", self.event, result)
@@ -102,7 +103,8 @@ class EventTests(unittest.TestCase):
         return source, target
 
     def test_verified_bug_rejects_wrong_person_missing_translation_or_source(self):
-        config = {"simple_name": "demo", "feature_type": "feature"}
+        config = {"simple_name": "demo", "feature_type": "feature",
+                  "pm_follower_userkey": "follower"}
         result = {"decision": "classified", "classification": "bug", "target_id": "456",
                   "owner_userkeys": ["owner"], "follower_userkeys": ["follower"]}
         with patch("runner.get_item", side_effect=self.target_fixture()):
@@ -110,6 +112,12 @@ class EventTests(unittest.TestCase):
         with patch("runner.get_item", side_effect=self.target_fixture()):
             with self.assertRaisesRegex(ValueError, "owner readback"):
                 verify_target(config, "creator", self.event, dict(result, owner_userkeys=["wrong"]))
+        source, target = self.target_fixture()
+        target["work_item_fields"][2]["value"] = [{"key": "source-creator"}]
+        with patch("runner.get_item", side_effect=[source, target]):
+            with self.assertRaisesRegex(ValueError, "configured PM"):
+                verify_target(config, "creator", self.event,
+                              dict(result, follower_userkeys=["source-creator"]))
         source, target = self.target_fixture()
         target["work_item_attribute"]["work_item_name"] = "English title"
         target["work_item_fields"][0]["value"] = self.event["github_url"]
