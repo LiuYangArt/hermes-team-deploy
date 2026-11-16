@@ -67,9 +67,10 @@ class Service:
     def process(self, row):
         payload = row["payload"]
         result = row["result"]
-        # Persist the verified target before delivery, so retries cannot reclassify it.
-        if not result:
-            result = self.command("triage", payload)
+        if not result or not result.get("target_id"):
+            raise ValueError("Triage requires a persisted formal target")
+        if result.get("phase") == "admitted":
+            result = self.command("triage", {"event": payload, "result": result})
             self.queue.checkpoint(row["key"], result)
         if result["decision"] == "filtered":
             self.queue.finish(row["key"], result)
@@ -83,27 +84,39 @@ class Service:
         result["message_id"] = receipt["message_id"]
         self.queue.finish(row["key"], result)
 
-    def worker(self):
+    def admit(self, row):
+        result = self.command("ensure", row["payload"])
+        if result.get("decision") == "filtered":
+            self.queue.finish(row["key"], result)
+        elif result.get("admitted") and result.get("target_id"):
+            self.queue.admitted(row["key"], result)
+        else:
+            raise ValueError("Admission requires an independently read-back target")
+
+    def worker(self, stage):
         while not self.stop.is_set():
             self.queue.retry_transient()
-            row = self.queue.claim()
+            row = self.queue.claim(stage)
             if row:
                 try:
-                    LOG.info("processing %s attempt=%s", row["key"], row["attempts"])
-                    self.process(row)
-                    LOG.info("completed %s", row["key"])
+                    LOG.info("processing %s stage=%s attempt=%s", row["key"], stage, row["attempts"])
+                    self.admit(row) if stage == "admission" else self.process(row)
+                    LOG.info("completed %s stage=%s", row["key"], stage)
                 except Exception as exc:
                     self.queue.fail(row["key"], str(exc))
                     LOG.exception("failed %s", row["key"])
                     if row["attempts"] >= 3:
                         try:
+                            current = self.queue.get(row["key"])
+                            known = (current or {}).get("result") or {}
                             self.command("notify", {
                                 "event": row["payload"],
-                                "result": {"decision": "failed",
-                                           "reason": "自动处理失败，事件已保留。请检查分诊服务的失败记录。"},
+                                "result": dict(known, decision="failed",
+                                    reason="自动处理未完成，已保留并持续重试。"),
                                 "chat_id": self.config["notification_chat"],
                                 "uuid": hashlib.sha256(
-                                    (row["key"] + ":failed").encode()).hexdigest()[:32],
+                                    (row["key"] + ":failed:" + stage + ":"
+                                     + str(known.get("target_id", ""))).encode()).hexdigest()[:32],
                             })
                         except Exception:
                             LOG.exception("failure alert could not be delivered")
@@ -176,8 +189,9 @@ def main():
     os.umask(0o077)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     service = Service(json.loads(Path(args.config).read_text()))
-    thread = threading.Thread(target=service.worker, daemon=True)
-    thread.start()
+    # Slow model calls must never hold up admission of the next issue.
+    for stage in ("admission", "triage"):
+        threading.Thread(target=service.worker, args=(stage,), daemon=True).start()
     server = ThreadingHTTPServer(
         (service.config["bind"], service.config["port"]), service.handler())
     server.daemon_threads = True

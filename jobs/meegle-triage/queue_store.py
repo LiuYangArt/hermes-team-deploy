@@ -44,11 +44,13 @@ class QueueStore:
                 (key, json.dumps(payload), now, now))
             return cursor.rowcount == 1
 
-    def claim(self):
+    def claim(self, stage):
+        condition = "result IS NULL" if stage == "admission" else "result IS NOT NULL"
         with self.connection() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
-                "SELECT * FROM events WHERE status='pending' ORDER BY created,key LIMIT 1"
+                "SELECT * FROM events WHERE status='pending' AND " + condition
+                + " ORDER BY created,key LIMIT 1"
             ).fetchone()
             if row is None:
                 return None
@@ -66,6 +68,12 @@ class QueueStore:
     def checkpoint(self, key, result):
         with self.connection() as db:
             db.execute("UPDATE events SET result=?,updated=? WHERE key=?",
+                       (json.dumps(result), time.time(), key))
+
+    def admitted(self, key, result):
+        with self.connection() as db:
+            db.execute("""UPDATE events SET status='pending',result=?,attempts=0,
+                error=NULL,updated=? WHERE key=?""",
                        (json.dumps(result), time.time(), key))
 
     def fail(self, key, error):
@@ -92,6 +100,8 @@ class QueueStore:
 
     def retry_transient(self):
         with self.connection() as db:
+            # Failures are retained and retried with a capped delay, never abandoned at three.
+            now = time.time()
             return db.execute("""UPDATE events SET status='pending',updated=?
-                WHERE status='failed' AND attempts<3 AND updated<?""",
-                (time.time(), time.time() - 60)).rowcount
+                WHERE status='failed' AND updated + min(900, 60 * max(1, attempts)) < ?""",
+                (now, now)).rowcount
