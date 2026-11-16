@@ -63,12 +63,17 @@ def related_ids(value):
 
 
 def verify_target(config, creator, event, result):
-    if result["decision"] != "classified":
+    if result["decision"] == "filtered":
         return result
+    if result["decision"] not in ("classified", "manual_review"):
+        raise ValueError("Processing failure is not a completed target")
+    review = result["decision"] == "manual_review"
+    if review and not str(result.get("reason", "")).strip():
+        raise ValueError("Manual review reason missing")
     kind = result["classification"]
     if kind not in ("bug", "feature_request"):
         raise ValueError("Invalid target classification")
-    ident = str(result["target_id"])
+    ident = str(result.get("target_id", ""))
     if not re.fullmatch(r"[1-9][0-9]*", ident) or ident == event["source_id"]:
         raise ValueError("Invalid final target ID")
     source = get_item(config, creator, event["source_id"],
@@ -95,8 +100,9 @@ def verify_target(config, creator, event, result):
     relation = "field_41cd35" if kind == "bug" else "field_f373bc"
     if ident not in related_ids(source_fields.get(relation)):
         raise ValueError("Source relation readback failed")
-    expected_state = "bgk7h9nl6" if kind == "bug" else "v8ywbsj8c"
-    expected_class = "1sl5_gbh2" if kind == "bug" else "_amm6f04"
+    expected_state = config["review_source_status"] if review else (
+        "bgk7h9nl6" if kind == "bug" else "v8ywbsj8c")
+    expected_class = "1sl5_gbh2" if kind == "bug" else "_amm6f04g"
     if option(source_fields.get("field_84351b")) != expected_state:
         raise ValueError("Source processing status readback failed")
     if option(source_fields.get("field_26717a")) != expected_class:
@@ -104,7 +110,8 @@ def verify_target(config, creator, event, result):
     if kind == "bug":
         actual_owners = sorted(x["key"] for x in target_fields.get("watchers") or [])
         actual_followers = sorted(x["key"] for x in target_fields.get("field_94a30f") or [])
-        if not actual_owners or actual_owners != sorted(result["owner_userkeys"]):
+        if ((not review and not actual_owners)
+                or actual_owners != sorted(result["owner_userkeys"])):
             raise ValueError("BUG owner readback failed")
         if not actual_followers or actual_followers != sorted(result["follower_userkeys"]):
             raise ValueError("BUG followers readback failed")
@@ -112,6 +119,9 @@ def verify_target(config, creator, event, result):
             raise ValueError("BUG followers must include the configured PM")
     elif event["source_id"] not in related_ids(target_fields.get("field_c81457")):
         raise ValueError("Feature source relation readback failed")
+    if review and not re.search(
+            r"(?:待人工确认|待人工分诊|待确认|分诊|复核)(?:原因)?[：:][ \t]*\S", description):
+        raise ValueError("Manual review reason absent from final target")
     result["title"] = title
     result["target_url"] = (
         f"https://project.larksuite.com/{config['simple_name']}/{expected_type}/detail/{ident}")
@@ -124,8 +134,12 @@ def parse_result(text):
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text)
     result = json.loads(text)
+    if result.get("decision") == "failed":
+        raise RuntimeError(str(result.get("reason") or "Meegle processing failed"))
     if result.get("decision") not in ("classified", "manual_review", "filtered"):
         raise ValueError("Missing valid decision")
+    if result["decision"] == "manual_review" and not result.get("target_id"):
+        raise ValueError("Manual review must create or reuse a final target")
     return result
 
 
@@ -179,35 +193,40 @@ def triage(config, event):
         + "\n可信运行配置：程序已按唯一账号在线核验在职 PM「77」，userkey=" + pm
         + "。直接使用，不得再次按显示名「77」搜索，不得因名字搜索为空转人工。"
         + "若负责人职责指向77，也直接复用此账号。其他负责人才需要查询。"
-        + "新建单只填此关注人；不得自动添加来源创建者或授权账号。")
+        + "新建单只填此关注人；不得自动添加来源创建者或授权账号。"
+        + "人工分诊必须创建/复用正式单、中文翻译并关联，负责人可空；"
+        + "来源处理状态“待人工确认”的已核验值=" + config["review_source_status"] + "。")
     (output / f"{name}.md").write_text(document)
     if not success:
         raise RuntimeError(error or "Hermes run failed")
     result = parse_result(response)
     if str(result.get("source_id")) != event["source_id"]:
         raise ValueError("Agent result source mismatch")
+    result = verify_target(config, creator, event, result)
     cached.write_text(json.dumps(result, ensure_ascii=False))
-    return verify_target(config, creator, event, result)
+    return result
 
 
 def notify(config, data):
     event, result = data["event"], data["result"]
     if data["chat_id"] != config["notification_chat"]:
         raise ValueError("Destination not allowed")
-    if result["decision"] == "classified":
+    decision = result["decision"]
+    if decision in ("classified", "manual_review"):
         from cron.jobs import get_job
         result = verify_target(
             config, get_job(config["job_id"])["personal_creator"], event, result)
         text = "\n".join([result["title"], "GitHub: " + event["github_url"],
                           "Meegle: " + result["target_url"]])
+    elif decision == "failed":
+        text = "自动处理失败 #" + str(event["number"]) + "\nGitHub: " + event["github_url"]
     else:
+        raise ValueError("Invalid notification decision")
+    if decision != "classified":
         pm = config["pm_mention_user_id"]
         if not re.fullmatch(r"ou_[a-zA-Z0-9]+", pm):
             raise ValueError("PM Lark mention identity missing")
-        text = "\n".join(["待人工分诊 #" + str(event["number"]),
-                          f'<at user_id="{pm}">77</at>',
-                          "GitHub: " + event["github_url"],
-                          str(result.get("reason", ""))[:80]])
+        text += "\n" + f'<at user_id="{pm}">77</at> ' + str(result.get("reason", ""))[:80]
     receipt_path = Path(config["output_dir"]) / ("notification-" + data["uuid"] + ".json")
     if receipt_path.exists():
         saved = json.loads(receipt_path.read_text())
@@ -239,7 +258,7 @@ def notify(config, data):
     if message.get("chat_id") != data["chat_id"]:
         raise ValueError("Notification mention/chat readback failed")
     actual = json.loads(message["body"]["content"])["text"]
-    if result["decision"] != "classified":
+    if decision != "classified":
         mentions = message.get("mentions", [])
         if not any(m.get("id") == pm for m in mentions):
             raise ValueError("Notification PM mention/chat readback failed")

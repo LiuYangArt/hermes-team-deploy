@@ -1,4 +1,5 @@
 import concurrent.futures
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -8,10 +9,11 @@ from http.server import ThreadingHTTPServer
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from unittest.mock import patch
+from types import SimpleNamespace
 
 from event_service import Service, validate_event
 from queue_store import QueueStore
-from runner import cli, notify, parse_result, related_ids, verify_pm, verify_target
+from runner import cli, notify, parse_result, related_ids, triage, verify_pm, verify_target
 
 
 class QueueTests(unittest.TestCase):
@@ -68,10 +70,42 @@ class EventTests(unittest.TestCase):
         self.assertEqual(related_ids([{"key": "456", "label": "Bug"}]), ["456"])
         self.assertEqual(related_ids([{"id": 456, "name": "Bug"}]), ["456"])
         self.assertEqual(related_ids({"key_label_value_list": [{"value": 456}]}), ["456"])
-        self.assertEqual(parse_result('```json\n{"decision":"manual_review"}\n```')["decision"],
+        self.assertEqual(parse_result(
+            '```json\n{"decision":"manual_review","target_id":"456"}\n```')["decision"],
                          "manual_review")
         with self.assertRaises(ValueError):
             parse_result('{"decision":"success"}')
+        with self.assertRaisesRegex(ValueError, "final target"):
+            parse_result('{"decision":"manual_review","reason":"unknown owner"}')
+        with self.assertRaisesRegex(RuntimeError, "network error"):
+            parse_result('{"decision":"failed","reason":"network error"}')
+
+    def test_unverified_model_result_is_not_cached(self):
+        with tempfile.TemporaryDirectory() as directory:
+            prompt = Path(directory) / "prompt.txt"
+            prompt.write_text("test")
+            config = dict(self.config, job_id="job", source_type="pool",
+                          output_dir=directory, prompt_path=str(prompt),
+                          review_source_status="review")
+            source = {"work_item_attribute": {
+                "work_item_type": {"key": "pool"}, "work_item_name": "report"},
+                "work_item_fields": [
+                    {"key": "field_3fba38", "value": self.event["github_url"]},
+                    {"key": "field_f3cd11", "value": self.event["repository"]},
+                    {"key": "field_7531ae", "value": self.event["number"]}]}
+            result = {"source_id": "123", "decision": "manual_review", "target_id": "456"}
+            modules = {
+                "cron.jobs": SimpleNamespace(get_job=lambda _: {"personal_creator": "creator"}),
+                "cron.scheduler": SimpleNamespace(
+                    run_job=lambda *a, **k: (True, "log", json.dumps(result), None))}
+            with patch.dict("sys.modules", modules), \
+                    patch("runner.verify_pm", return_value="pm"), \
+                    patch("runner.get_item", return_value=source), \
+                    patch("runner.verify_target", side_effect=ValueError("relation missing")):
+                with self.assertRaisesRegex(ValueError, "relation missing"):
+                    triage(config, self.event)
+            name = hashlib.sha256(self.event["github_url"].encode()).hexdigest()[:16]
+            self.assertFalse((Path(directory) / (name + ".json")).exists())
 
     def test_pool_link_or_unverified_owner_never_passes(self):
         config = {"simple_name": "demo", "feature_type": "feature",
@@ -88,7 +122,7 @@ class EventTests(unittest.TestCase):
             {"key": "field_84351b",
              "value": "bgk7h9nl6" if kind == "bug" else "v8ywbsj8c"},
             {"key": "field_26717a",
-             "value": "1sl5_gbh2" if kind == "bug" else "_amm6f04"},
+             "value": "1sl5_gbh2" if kind == "bug" else "_amm6f04g"},
         ]}
         target = {
             "work_item_attribute": {"work_item_type": {
@@ -142,12 +176,71 @@ class EventTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Feature source relation"):
                 verify_target(config, "creator", self.event, dict(result))
 
+    def test_manual_review_requires_final_target_translation_pm_and_relation(self):
+        config = {"simple_name": "demo", "feature_type": "feature",
+                  "pm_follower_userkey": "follower", "review_source_status": "review"}
+        result = {"decision": "manual_review", "classification": "bug", "target_id": "456",
+                  "owner_userkeys": [], "follower_userkeys": ["follower"],
+                  "reason": "负责人待确认"}
+        source, target = self.target_fixture()
+        source["work_item_fields"][3]["value"] = "review"
+        target["work_item_fields"][1]["value"] = []
+        target["work_item_fields"][0]["value"] += "\n待人工确认：职责规则未覆盖，需确认负责人"
+        with patch("runner.get_item", side_effect=[source, target]):
+            value = verify_target(config, "creator", self.event, dict(result))
+            self.assertTrue(value["verified"])
+            self.assertEqual(value["target_url"], "https://project.larksuite.com/demo/issue/detail/456")
+        target["work_item_fields"][0]["value"] = (
+            self.event["github_url"] + "\n待确认原因：中文职责边界需由PM确认")
+        with patch("runner.get_item", side_effect=[source, target]):
+            self.assertTrue(verify_target(config, "creator", self.event, dict(result))["verified"])
+        for change in ({"target_id": "123"}, {"target_id": ""}):
+            with self.assertRaisesRegex(ValueError, "final target"):
+                verify_target(config, "creator", self.event, dict(result, **change))
+        source["work_item_fields"][3]["value"] = "bgk7h9nl6"
+        with patch("runner.get_item", side_effect=[source, target]):
+            with self.assertRaisesRegex(ValueError, "owner readback"):
+                verify_target(config, "creator", self.event, dict(result, decision="classified"))
+        source["work_item_fields"][3]["value"] = "review"
+        target["work_item_fields"][0]["value"] = self.event["github_url"]
+        with patch("runner.get_item", side_effect=[source, target]):
+            with self.assertRaisesRegex(ValueError, "reason absent"):
+                verify_target(config, "creator", self.event, dict(result))
+        target["work_item_fields"][0]["value"] += "\n待人工确认：  \n"
+        with patch("runner.get_item", side_effect=[source, target]):
+            with self.assertRaisesRegex(ValueError, "reason absent"):
+                verify_target(config, "creator", self.event, dict(result))
+
+    def test_manual_review_notification_has_formal_link_and_real_mention(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = dict(self.config, output_dir=directory, job_id="job")
+            result = {"decision": "manual_review", "title": "中文待分诊标题",
+                      "target_url": "https://project.larksuite.com/demo/issue/detail/456",
+                      "reason": "负责人待确认"}
+            expected = (result["title"] + "\nGitHub: " + self.event["github_url"]
+                        + "\nMeegle: " + result["target_url"]
+                        + '\n<at user_id="ou_pm">77</at> 负责人待确认')
+            raw = {"data": {"items": [{"message_id": "sent", "chat_id": "chat",
+                    "mentions": [{"id": "ou_pm", "key": "@_user_1"}],
+                    "body": {"content": json.dumps({"text": expected.replace(
+                        '<at user_id="ou_pm">77</at>', "@_user_1")})}}]}}
+            with patch.dict("sys.modules", {"cron.jobs": SimpleNamespace(
+                    get_job=lambda _: {"personal_creator": "creator"})}), \
+                    patch("runner.verify_target", return_value=result) as verify, \
+                    patch("runner.cli", side_effect=[{"data": {"message_id": "sent"}},
+                        {"data": {"messages": [{"message_id": "sent"}]}}, raw]) as command:
+                notify(config, {"event": self.event, "result": result,
+                                "chat_id": "chat", "uuid": "manual"})
+            verify.assert_called_once()
+            self.assertEqual(command.call_args_list[0].args[0][
+                command.call_args_list[0].args[0].index("--text") + 1], expected)
+
     def test_notification_retry_reads_saved_receipt_without_resending(self):
         with tempfile.TemporaryDirectory() as directory:
             config = dict(self.config, review_chat="review", output_dir=directory)
-            data = {"event": self.event, "result": {"decision": "manual_review", "reason": "check"},
+            data = {"event": self.event, "result": {"decision": "failed", "reason": "check"},
                     "chat_id": "chat", "uuid": "stable"}
-            content = '待人工分诊 #12\n<at user_id="ou_pm">77</at>\nGitHub: ' + self.event["github_url"] + "\ncheck"
+            content = '自动处理失败 #12\nGitHub: ' + self.event["github_url"] + '\n<at user_id="ou_pm">77</at> check'
             response = {"data": {"messages": [{"message_id": "sent", "content": content}]}}
             with patch("runner.cli", side_effect=[
                     {"data": {"message_id": "sent"}}, RuntimeError("readback offline")]):
@@ -190,9 +283,12 @@ class EventTests(unittest.TestCase):
                 self.addCleanup(service.lock.close)
                 service.queue.enqueue("one", self.event)
                 with patch.object(service, "command", side_effect=[
-                        {"decision": decision}, {"message_id": "sent"}]) as command:
+                        {"decision": decision, "target_id": "456"},
+                        {"message_id": "sent"}]) as command:
                     service.process(service.queue.claim())
                 self.assertEqual(command.call_args.args[1]["chat_id"], "chat")
+                self.assertEqual(command.call_args.args[1]["uuid"],
+                                 hashlib.sha256(b"one:target:456").hexdigest()[:32])
 
     def test_final_failure_alert_uses_same_chat(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -202,6 +298,7 @@ class EventTests(unittest.TestCase):
             def alert(mode, data):
                 service.stop.set()
                 self.assertEqual(data["chat_id"], "chat")
+                self.assertEqual(data["result"]["decision"], "failed")
                 return {"message_id": "sent"}
             with patch.object(service.queue, "claim", return_value=row), \
                     patch.object(service.queue, "fail"), \
@@ -220,7 +317,7 @@ class EventTests(unittest.TestCase):
     def test_plain_name_or_wrong_chat_is_not_verified_as_mention(self):
         with tempfile.TemporaryDirectory() as directory:
             config = dict(self.config, output_dir=directory)
-            data = {"event": self.event, "result": {"decision": "manual_review", "reason": "check"},
+            data = {"event": self.event, "result": {"decision": "failed", "reason": "check"},
                     "chat_id": "chat", "uuid": "stable"}
             rendered = {"data": {"messages": [{"message_id": "sent", "content": "@77"}]}}
             for chat, mentions in (("chat", []), ("wrong", [{"id": "ou_pm"}]),

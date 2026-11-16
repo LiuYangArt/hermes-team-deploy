@@ -75,9 +75,10 @@ class Service:
             self.queue.finish(row["key"], result)
             return
         target = self.config["notification_chat"]
+        delivery_key = row["key"] + ":target:" + str(result["target_id"])
         receipt = self.command("notify", {
             "event": payload, "result": result, "chat_id": target,
-            "uuid": hashlib.sha256(row["key"].encode()).hexdigest()[:32],
+            "uuid": hashlib.sha256(delivery_key.encode()).hexdigest()[:32],
         })
         result["message_id"] = receipt["message_id"]
         self.queue.finish(row["key"], result)
@@ -98,7 +99,7 @@ class Service:
                         try:
                             self.command("notify", {
                                 "event": row["payload"],
-                                "result": {"decision": "manual_review",
+                                "result": {"decision": "failed",
                                            "reason": "自动处理失败，事件已保留。请检查分诊服务的失败记录。"},
                                 "chat_id": self.config["notification_chat"],
                                 "uuid": hashlib.sha256(
