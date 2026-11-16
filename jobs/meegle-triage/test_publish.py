@@ -27,6 +27,8 @@ class PublishTests(unittest.TestCase):
                 first = publish(source, root, "meegle-triage")
                 self.assertEqual(validation.call_args.kwargs["cwd"].parent, root / "releases")
             self.assertEqual((root / "current").resolve(), first.resolve())
+            self.assertEqual(first.stat().st_mode & 0o777, 0o755)
+            self.assertEqual((first / "runner.py").stat().st_mode & 0o777, 0o644)
             (source / "runner.py").write_text("# next release\n")
             with patch("publish.subprocess.run",
                        side_effect=subprocess.CalledProcessError(1, "tests")):

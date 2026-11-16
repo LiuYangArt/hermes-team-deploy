@@ -27,10 +27,15 @@ def publish(source, root, job):
     releases = root / "releases"
     releases.mkdir(parents=True, exist_ok=True, mode=0o700)
     stage = Path(tempfile.mkdtemp(prefix=".staging-", dir=releases))
+    # The service runs as the unprivileged deploy user even when publishing uses sudo.
+    # Keep the immutable release traversable after an administrator-owned publish.
+    stage.chmod(0o755)
     final = releases / ("event-" + digest.hexdigest()[:16])
     try:
         for name, data in contents.items():
-            (stage / name).write_bytes(data)
+            target = stage / name
+            target.write_bytes(data)
+            target.chmod(0o644)
         subprocess.run(
             [sys.executable, "-m", "unittest", "test_event_job", "-v"],
             cwd=stage, check=True, timeout=120)

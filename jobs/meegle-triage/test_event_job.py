@@ -13,7 +13,8 @@ from types import SimpleNamespace
 
 from event_service import Service, validate_event
 from queue_store import QueueStore
-from runner import cli, notify, parse_result, related_ids, triage, verify_pm, verify_target
+from runner import (cli, create_placeholder, notify, parse_result, related_ids, triage,
+                    verify_pm, verify_target)
 
 
 class QueueTests(unittest.TestCase):
@@ -80,32 +81,58 @@ class EventTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "network error"):
             parse_result('{"decision":"failed","reason":"network error"}')
 
-    def test_unverified_model_result_is_not_cached(self):
+    def test_model_failure_keeps_precreated_target(self):
         with tempfile.TemporaryDirectory() as directory:
             prompt = Path(directory) / "prompt.txt"
             prompt.write_text("test")
-            config = dict(self.config, job_id="job", source_type="pool",
-                          output_dir=directory, prompt_path=str(prompt),
-                          review_source_status="review")
+            config = dict(self.config, job_id="job", project_key="project",
+                          simple_name="demo", source_type="pool", output_dir=directory,
+                          prompt_path=str(prompt), review_source_status="review",
+                          pm_follower_userkey="pm", pm_email="pm@example.com")
             source = {"work_item_attribute": {
                 "work_item_type": {"key": "pool"}, "work_item_name": "report"},
                 "work_item_fields": [
                     {"key": "field_3fba38", "value": self.event["github_url"]},
                     {"key": "field_f3cd11", "value": self.event["repository"]},
-                    {"key": "field_7531ae", "value": self.event["number"]}]}
-            result = {"source_id": "123", "decision": "manual_review", "target_id": "456"}
+                    {"key": "field_7531ae", "value": self.event["number"]},
+                    {"key": "field_41cd35", "value": []}]}
+            result = {"source_id": "123", "decision": "manual_review",
+                      "classification": "bug", "target_id": "456",
+                      "owner_userkeys": [], "follower_userkeys": [],
+                      "reason": "已先创建正式 Bug；自动分诊失败，待人工确认",
+                      "seed_only": True}
             modules = {
                 "cron.jobs": SimpleNamespace(get_job=lambda _: {"personal_creator": "creator"}),
                 "cron.scheduler": SimpleNamespace(
-                    run_job=lambda *a, **k: (True, "log", json.dumps(result), None))}
+                    run_job=lambda *a, **k: (False, "log", "", "model unavailable"))}
             with patch.dict("sys.modules", modules), \
-                    patch("runner.verify_pm", return_value="pm"), \
                     patch("runner.get_item", return_value=source), \
-                    patch("runner.verify_target", side_effect=ValueError("relation missing")):
-                with self.assertRaisesRegex(ValueError, "relation missing"):
-                    triage(config, self.event)
+                    patch("runner.create_placeholder", return_value={"target_id": "456"}), \
+                    patch("runner.link_placeholder"), \
+                    patch("runner.seed_result", return_value=result), \
+                    patch("runner.verify_seed_target", side_effect=lambda c, cr, e, r: dict(
+                        r, title="[待人工分诊] report", target_url="https://project.larksuite.com/demo/issue/detail/456", verified=True)):
+                value = triage(config, self.event)
+            self.assertEqual(value["target_id"], "456")
+            self.assertTrue(value["seed_only"])
             name = hashlib.sha256(self.event["github_url"].encode()).hexdigest()[:16]
-            self.assertFalse((Path(directory) / (name + ".json")).exists())
+            self.assertEqual(json.loads((Path(directory) / (name + ".json")).read_text())["target_id"], "456")
+
+    def test_placeholder_creation_does_not_depend_on_model(self):
+        config = {"project_key": "project"}
+        source = {"work_item_attribute": {"work_item_name": "English report"},
+                  "work_item_fields": [{"key": "description", "value": "details"}]}
+        meta = {"list": [{"field_key": "template", "option": [
+            {"option_id": "1596778", "option_name": "普通缺陷"}]}]}
+        created = {"data": {"work_item_id": "789"}}
+        with patch("runner.cli", side_effect=[meta, created]) as command:
+            value = create_placeholder(config, "creator", self.event, source)
+        self.assertEqual(value["target_id"], "789")
+        params = json.loads(command.call_args_list[1].args[0][
+            command.call_args_list[1].args[0].index("--params") + 1])
+        self.assertEqual(params["work_item_type"], "issue")
+        self.assertIn(self.event["github_url"], params["fields"][2]["field_value"])
+        self.assertNotIn("<img", params["fields"][2]["field_value"])
 
     def test_pool_link_or_unverified_owner_never_passes(self):
         config = {"simple_name": "demo", "feature_type": "feature",
